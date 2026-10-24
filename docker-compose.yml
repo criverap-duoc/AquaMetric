@@ -1,0 +1,23 @@
+# Local development dependencies only: the API runs from the host with `uv run uvicorn`.
+# Ports are shifted off the defaults so AquaMetric can run next to TerraPlan.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aquametric-pg
+    environment:
+      POSTGRES_USER: aquametric
+      POSTGRES_PASSWORD: aquametric
+      POSTGRES_DB: aquametric
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aquametric -d aquametric"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pgdata:
