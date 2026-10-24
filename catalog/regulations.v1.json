@@ -1,0 +1,42 @@
+{
+  "version": "1.0.0",
+  "updatedAt": "2026-10-18T00:00:00Z",
+  "regulations": [
+    {
+      "code": "NCh1333",
+      "name": "NCh 1.333 Of.78: Requisitos de calidad del agua para diferentes usos",
+      "jurisdiction": "CL",
+      "scope": "usos",
+      "officialSourceUrl": "https://www.bcn.cl/leychile/navegar?idNorma=1063954",
+      "version": "1978 (mod. 1987)",
+      "effectiveDate": "1978-01-01",
+      "notes": "Norma de usos. No reemplaza las normas secundarias por cuenca."
+    },
+    {
+      "code": "DS53-2014-MMA",
+      "name": "D.S. N.º 53/2014 MMA: Normas Secundarias de Calidad Ambiental para la protección de las aguas continentales superficiales de la cuenca del río Maipo",
+      "jurisdiction": "CL-RM",
+      "scope": "cuenca_maipo",
+      "officialSourceUrl": "https://www.bcn.cl/leychile/navegar?idNorma=1063954",
+      "version": "2014",
+      "effectiveDate": "2014-07-04",
+      "evaluationWindowYears": 3,
+      "minimumSeasonalCoverage": 4,
+      "samplesPerYearTarget": 12,
+      "monitoringAreas": [
+        { "code": "MA-1", "description": "Río Maipo: naciente a confluencia con Río Volcán" },
+        { "code": "MA-2", "description": "Río Maipo: Río Volcán a Río Colorado" },
+        { "code": "MA-3", "description": "Río Maipo: Río Colorado a Río Clarillo" },
+        { "code": "MA-4", "description": "Río Maipo: Río Clarillo a Río Mapocho" },
+        { "code": "MA-5", "description": "Río Maipo: Río Mapocho a aguas arriba de Lo Gallardo" },
+        { "code": "AN-1", "description": "Río Angostura" },
+        { "code": "MP-1", "description": "Río Mapocho: San Francisco/Molina a Estero Arrayán" },
+        { "code": "MP-2", "description": "Río Mapocho: Estero Arrayán a Río Maipo" },
+        { "code": "LA-1", "description": "Estero Lampa" },
+        { "code": "PU-1", "description": "Estero Puangue: naciente a Curacaví" },
+        { "code": "PU-2", "description": "Estero Puangue: Curacaví a Río Maipo" }
+      ],
+      "notes": "Evaluación P95 (la mayoría), P5 (OD), P5/P95 (pH), ventana trienal, 4 campañas estacionales mínimas por año. Regla de dos excedencias consecutivas. Solo Red de Control (no incluye MA-6, que pertenece a Red de Observación)."
+    }
+  ]
+}

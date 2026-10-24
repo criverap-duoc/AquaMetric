@@ -1,0 +1,29 @@
+{
+  "version": "1.0.0",
+  "updatedAt": "2026-10-18T00:00:00Z",
+  "units": [
+    { "code": "UPH",       "nameEs": "unidad de pH",                              "dimension": "ph",              "factorToCanonical": 1 },
+    { "code": "DEG_C",     "nameEs": "grado Celsius",                             "dimension": "temperatura",     "factorToCanonical": 1 },
+    { "code": "MG_L",      "nameEs": "miligramo por litro",                       "dimension": "concentracion",   "factorToCanonical": 1 },
+    { "code": "MG_N_L",    "nameEs": "miligramo de nitrógeno por litro",          "dimension": "concentracion",   "factorToCanonical": 1 },
+    { "code": "MG_P_L",    "nameEs": "miligramo de fósforo por litro",            "dimension": "concentracion",   "factorToCanonical": 1 },
+    { "code": "US_CM",     "nameEs": "microsiemens por centímetro",               "dimension": "conductividad",   "factorToCanonical": 1 },
+    { "code": "NTU",       "nameEs": "unidad nefelométrica de turbidez",          "dimension": "turbidez",        "factorToCanonical": 1 },
+    { "code": "US_SILICE", "nameEs": "unidad escala sílice",                      "dimension": "turbidez",        "factorToCanonical": 0.1333,
+      "notes": "1 NTU ≈ 7.5 US. Factor aproximado; usar solo para conversiones informativas." }
+  ],
+  "conversionNotes": [
+    {
+      "from": "NO3_ion",
+      "to": "MG_N_L",
+      "factor": 0.2259,
+      "description": "mg N-NO3/L = mg NO3-/L × 0.2259. Guardar el valor iónico original + el valor convertido con trazabilidad."
+    },
+    {
+      "from": "PO4_ion",
+      "to": "MG_P_L",
+      "factor": 0.3261,
+      "description": "mg P-PO4/L = mg PO4(3-)/L × 0.3261. Guardar el valor iónico original + el valor convertido con trazabilidad."
+    }
+  ]
+}
