@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Final
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +12,10 @@ from app.core.config import get_settings
 from app.core.db import create_engine, create_session_factory
 from app.core.errors import register_exception_handlers
 from app.core.logging import RequestIdMiddleware, configure_logging
-from app.routers import health
+from app.routers import health, ingest
+
+# Single place that versions the public API; routers declare only their resource segment.
+API_PREFIX: Final = "/api/v1"
 
 
 @asynccontextmanager
@@ -51,7 +55,8 @@ def create_app() -> FastAPI:
     )
 
     register_exception_handlers(app)
-    app.include_router(health.router)
+    app.include_router(health.router, prefix=API_PREFIX)
+    app.include_router(ingest.router, prefix=API_PREFIX)
     return app
 
 

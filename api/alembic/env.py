@@ -7,6 +7,7 @@ environment as running the app (`api/.env` locally, the service variables on Ren
 
 import asyncio
 from logging.config import fileConfig
+from typing import Any
 
 from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
@@ -42,8 +43,12 @@ def _include_object(
     return getattr(obj, "schema", SCHEMA) == SCHEMA
 
 
-def _configure(**options: object) -> None:
-    """Shared options for both modes, so online and offline emit the same schema scope."""
+def _configure(**options: Any) -> None:
+    """Shared options for both modes, so online and offline emit the same schema scope.
+
+    `Any` because `context.configure` forwards to Alembic's own typed kwargs; restating its
+    signature here would be a copy that silently drifts with each Alembic release.
+    """
     context.configure(
         target_metadata=target_metadata,
         include_schemas=True,

@@ -5,12 +5,8 @@ re-exported here so callers import from one place.
 """
 
 from app.catalog.entities import Catalog, Limit, Parameter, Regulation, Unit
-from app.catalog.loader import (
-    ABSOLUTE_STATISTICS,
-    CATALOG_FILES,
-    CatalogLoadError,
-    load_catalog,
-)
+from app.catalog.loader import ABSOLUTE_STATISTICS, CATALOG_FILES, load_catalog
+from app.catalog.validation import CatalogLoadError
 
 __all__ = [
     "ABSOLUTE_STATISTICS",

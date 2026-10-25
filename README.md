@@ -5,9 +5,10 @@ Recibe observaciones de laboratorio (TerraPlan) y de un simulador de sensores, l
 contra un catálogo compartido y las analiza con cartas de control (I-MR / X̄-R), reglas de
 Nelson y capacidad de proceso. La UI es pública y de solo lectura.
 
-> **Estado: Fase A-1 (scaffold).** API creada con `create_app()`, `/api/v1/health` operativo,
-> errores en `application/problem+json` y logging JSON con `requestId`. Todavía **no** hay
-> base de datos, ingesta, SPC ni frontend: llegan en las fases A-2 en adelante.
+> **Estado: Fase A cerrada.** API con `create_app()`, `/api/v1/health`, errores en
+> `application/problem+json`, logging JSON con `requestId`, esquema `aquametric` con Alembic y
+> **ingesta atómica e idempotente** (`POST /api/v1/ingest/observations`). Simulador, SPC y
+> frontend llegan en las fases siguientes.
 
 ## Stack
 
@@ -25,14 +26,20 @@ Nelson y capacidad de proceso. La UI es pública y de solo lectura.
 aquametric-fastapi/
 ├─ api/
 │  ├─ pyproject.toml
+│  ├─ alembic/              # migraciones (version_table_schema = aquametric)
 │  ├─ app/
 │  │  ├─ main.py            # create_app(): settings, middleware, handlers, routers
-│  │  ├─ core/              # config · clock · errors · logging · db
-│  │  ├─ routers/           # health
-│  │  └─ schemas/           # CamelModel y contratos
-│  └─ tests/                # unit/
-├─ catalog/                 # copia de solo lectura del catálogo de TerraPlan (pendiente)
+│  │  ├─ catalog/           # loader + validación del catálogo sincronizado
+│  │  ├─ core/              # config · clock · db · security · dependencies · errors · logging
+│  │  ├─ models/            # SQLAlchemy 2.0 (esquema aquametric)
+│  │  ├─ repositories/      # único acceso a la BD
+│  │  ├─ routers/           # health · ingest
+│  │  ├─ schemas/           # CamelModel y contratos
+│  │  └─ services/          # IngestService: transacción única e idempotencia
+│  └─ tests/                # unit/ · integration/ (Testcontainers)
+├─ catalog/                 # copia de solo lectura, sincronizada con scripts/sync_catalog.py
 ├─ docs/                    # ADRs, métodos SPC, glosario, design system
+├─ scripts/                 # sync_catalog.py · db_reset.sh (solo desarrollo)
 └─ docker-compose.yml       # PostgreSQL local en el puerto 5433
 ```
 
@@ -49,7 +56,10 @@ uv sync
 # 3. Variables de entorno
 cp .env.example .env        # ajustar INGEST_API_KEY
 
-# 4. Servidor
+# 4. Esquema de la base (migraciones Alembic)
+uv run alembic upgrade head
+
+# 5. Servidor
 uv run uvicorn app.main:app --reload --port 8000
 ```
 
@@ -60,9 +70,22 @@ OpenAPI: <http://localhost:8000/docs> · Health: <http://localhost:8000/api/v1/h
 | Método | Ruta | Acceso | Descripción |
 |---|---|---|---|
 | GET | `/api/v1/health` | Público | Liveness: `status`, `service`, `version`, `env`, `timestamp`, `requestId` |
+| POST | `/api/v1/ingest/observations` | `X-API-Key` + `Idempotency-Key` | Lote atómico e idempotente: `{catalogVersion, site, samples[], observations[]}` → `{accepted, duplicates}` |
 
-Los endpoints de escritura (ingesta, línea base SPC) exigirán `X-API-Key`; toda la lectura es
-pública. Ningún error sale de la API con otra forma que `application/problem+json`.
+El endpoint de ingesta exige `X-API-Key` **y** `Idempotency-Key`; toda la lectura es pública. Un
+lote se valida completo antes de escribir: cualquier fila inválida (`UNKNOWN_PARAMETER`,
+`UNIT_MISMATCH`, `VALIDATION_ERROR`) deja la base intacta, y repetir la misma key con el mismo
+cuerpo devuelve la respuesta guardada sin reprocesar. Ningún error sale de la API con otra forma
+que `application/problem+json`.
+
+## Reset de la base de datos (solo desarrollo)
+
+`alembic downgrade -1` sobre la migración inicial **borra el esquema completo**, con datos y todo
+(ver `docs/adr/013-alembic-downgrade-note.md`). Para empezar de cero en local:
+
+```bash
+./scripts/db_reset.sh    # lee DATABASE_URL de api/.env, recrea aquametric y migra
+```
 
 ## Variables de entorno
 

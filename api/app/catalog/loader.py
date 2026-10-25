@@ -13,6 +13,14 @@ from pathlib import Path
 from typing import Any, Final
 
 from app.catalog.entities import Catalog, Limit, Parameter, Regulation, Unit
+from app.catalog.validation import (
+    CatalogLoadError,
+    optional_float,
+    optional_str,
+    require_bool,
+    require_int,
+    require_str,
+)
 
 META_FILE: Final = "catalog.meta.json"
 PARAMETERS_FILE: Final = "parameters.v1.json"
@@ -29,19 +37,11 @@ CATALOG_FILES: Final = (META_FILE, PARAMETERS_FILE, UNITS_FILE, LIMITS_FILE, REG
 ABSOLUTE_STATISTICS: Final = frozenset({"max_absolute", "min_absolute"})
 
 
-class CatalogLoadError(Exception):
-    """Raised when the synchronized catalog is missing or inconsistent.
-
-    Deliberately not a `DomainError`: this surfaces at startup, not inside an HTTP request,
-    so no problem+json handler should ever translate it.
-    """
-
-
 def _read_json(path: Path) -> dict[str, Any]:
     """Read one catalog document.
 
-    JSON is an untyped boundary: every field this module uses is validated by the
-    `_require_*` helpers below, which is why `Any` stops here.
+    JSON is an untyped boundary: every field this module uses is validated by the readers in
+    `validation.py` (`require_str`, `optional_float`, ...), which is why `Any` stops here.
     """
     try:
         payload: Any = json.loads(path.read_text(encoding="utf-8"))
@@ -52,45 +52,6 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise CatalogLoadError(f"{path.name}: se esperaba un objeto JSON en la raíz")
     return payload
-
-
-def _require_str(raw: Mapping[str, Any], field: str, *, path: Path) -> str:
-    value = raw.get(field)
-    if not isinstance(value, str) or not value:
-        raise CatalogLoadError(f"{path.name}: campo '{field}' ausente o no es texto")
-    return value
-
-
-def _optional_str(raw: Mapping[str, Any], field: str, *, path: Path) -> str | None:
-    value = raw.get(field)
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise CatalogLoadError(f"{path.name}: campo '{field}' no es texto")
-    return value
-
-
-def _require_int(raw: Mapping[str, Any], field: str, *, path: Path) -> int:
-    value = raw.get(field)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise CatalogLoadError(f"{path.name}: campo '{field}' ausente o no es entero")
-    return value
-
-
-def _require_bool(raw: Mapping[str, Any], field: str, *, path: Path) -> bool:
-    value = raw.get(field)
-    if not isinstance(value, bool):
-        raise CatalogLoadError(f"{path.name}: campo '{field}' ausente o no es booleano")
-    return value
-
-
-def _optional_float(raw: Mapping[str, Any], field: str, *, path: Path) -> float | None:
-    value = raw.get(field)
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise CatalogLoadError(f"{path.name}: campo '{field}' no es numérico")
-    return float(value)
 
 
 def _require_objects(raw: Mapping[str, Any], field: str, *, path: Path) -> list[dict[str, Any]]:
@@ -120,51 +81,51 @@ def _parse_timestamp(value: str, *, path: Path) -> datetime:
 
 def _build_parameter(raw: Mapping[str, Any], *, path: Path) -> Parameter:
     return Parameter(
-        code=_require_str(raw, "code", path=path),
-        name_es=_require_str(raw, "nameEs", path=path),
-        category=_require_str(raw, "category", path=path),
-        canonical_unit_code=_require_str(raw, "canonicalUnitCode", path=path),
-        decimals=_require_int(raw, "decimals", path=path),
-        measurement_type=_require_str(raw, "measurementType", path=path),
-        status=_require_str(raw, "status", path=path),
-        mvp_optional=_require_bool(raw, "mvpOptional", path=path),
+        code=require_str(raw, "code", path=path),
+        name_es=require_str(raw, "nameEs", path=path),
+        category=require_str(raw, "category", path=path),
+        canonical_unit_code=require_str(raw, "canonicalUnitCode", path=path),
+        decimals=require_int(raw, "decimals", path=path),
+        measurement_type=require_str(raw, "measurementType", path=path),
+        status=require_str(raw, "status", path=path),
+        mvp_optional=require_bool(raw, "mvpOptional", path=path),
     )
 
 
 def _build_unit(raw: Mapping[str, Any], *, path: Path) -> Unit:
-    factor = _optional_float(raw, "factorToCanonical", path=path)
+    factor = optional_float(raw, "factorToCanonical", path=path)
     if factor is None:
         raise CatalogLoadError(f"{path.name}: campo 'factorToCanonical' ausente")
     return Unit(
-        code=_require_str(raw, "code", path=path),
-        name_es=_require_str(raw, "nameEs", path=path),
-        dimension=_require_str(raw, "dimension", path=path),
+        code=require_str(raw, "code", path=path),
+        name_es=require_str(raw, "nameEs", path=path),
+        dimension=require_str(raw, "dimension", path=path),
         factor_to_canonical=factor,
     )
 
 
 def _build_limit(raw: Mapping[str, Any], *, path: Path) -> Limit:
     return Limit(
-        parameter_code=_require_str(raw, "parameterCode", path=path),
-        regulation_code=_require_str(raw, "regulationCode", path=path),
-        statistic=_require_str(raw, "statistic", path=path),
-        min=_optional_float(raw, "min", path=path),
-        max=_optional_float(raw, "max", path=path),
-        max_increase_over_natural=_optional_float(raw, "maxIncreaseOverNatural", path=path),
-        unit_code=_require_str(raw, "unitCode", path=path),
-        status=_require_str(raw, "status", path=path),
-        context=_optional_str(raw, "context", path=path),
-        monitoring_area_code=_optional_str(raw, "monitoringAreaCode", path=path),
-        quality_level=_optional_str(raw, "qualityLevel", path=path),
+        parameter_code=require_str(raw, "parameterCode", path=path),
+        regulation_code=require_str(raw, "regulationCode", path=path),
+        statistic=require_str(raw, "statistic", path=path),
+        min=optional_float(raw, "min", path=path),
+        max=optional_float(raw, "max", path=path),
+        max_increase_over_natural=optional_float(raw, "maxIncreaseOverNatural", path=path),
+        unit_code=require_str(raw, "unitCode", path=path),
+        status=require_str(raw, "status", path=path),
+        context=optional_str(raw, "context", path=path),
+        monitoring_area_code=optional_str(raw, "monitoringAreaCode", path=path),
+        quality_level=optional_str(raw, "qualityLevel", path=path),
     )
 
 
 def _build_regulation(raw: Mapping[str, Any], *, path: Path) -> Regulation:
     return Regulation(
-        code=_require_str(raw, "code", path=path),
-        name=_require_str(raw, "name", path=path),
-        jurisdiction=_require_str(raw, "jurisdiction", path=path),
-        scope=_require_str(raw, "scope", path=path),
+        code=require_str(raw, "code", path=path),
+        name=require_str(raw, "name", path=path),
+        jurisdiction=require_str(raw, "jurisdiction", path=path),
+        scope=require_str(raw, "scope", path=path),
     )
 
 
@@ -193,7 +154,7 @@ def _read_versioned(catalog_dir: Path, name: str, *, version: str) -> dict[str, 
     """Read a `.v1.json` file and require the version declared in `catalog.meta.json`."""
     path = catalog_dir / name
     payload = _read_json(path)
-    found = _require_str(payload, "version", path=path)
+    found = require_str(payload, "version", path=path)
     if found != version:
         raise CatalogLoadError(
             f"{name}: version '{found}' no coincide con '{version}' de {META_FILE}"
@@ -291,9 +252,9 @@ def load_catalog(catalog_dir: Path) -> Catalog:
 
     meta_path = catalog_dir / META_FILE
     meta = _read_json(meta_path)
-    version = _require_str(meta, "version", path=meta_path)
-    bundle_sha256 = _require_str(meta, "sha256", path=meta_path)
-    generated_at = _parse_timestamp(_require_str(meta, "updatedAt", path=meta_path), path=meta_path)
+    version = require_str(meta, "version", path=meta_path)
+    bundle_sha256 = require_str(meta, "sha256", path=meta_path)
+    generated_at = _parse_timestamp(require_str(meta, "updatedAt", path=meta_path), path=meta_path)
 
     parameters = _load_parameters(catalog_dir, version=version)
     units = _load_units(catalog_dir, version=version)
