@@ -71,12 +71,17 @@ class Catalog:
     """The whole catalog, indexed by code and with limits in a deterministic order.
 
     `sha256` is the logical-bundle hash TerraPlan declares in `catalog.meta.json`; it is not
-    the hash of that file (a file cannot contain its own hash).
+    the hash of that file (a file cannot contain its own hash). `status`, `validated_by` and
+    `validated_at` are the chemist's signature state: screening compares nothing until a limit
+    itself is `validated`, and the API publishes this state so the UI can say so.
     """
 
     version: str
     sha256: str
     generated_at: datetime
+    status: str
+    validated_by: str | None
+    validated_at: datetime | None
     parameters: dict[str, Parameter]
     units: dict[str, Unit]
     limits: tuple[Limit, ...]

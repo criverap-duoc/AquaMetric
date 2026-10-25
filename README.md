@@ -70,13 +70,26 @@ OpenAPI: <http://localhost:8000/docs> · Health: <http://localhost:8000/api/v1/h
 | Método | Ruta | Acceso | Descripción |
 |---|---|---|---|
 | GET | `/api/v1/health` | Público | Liveness: `status`, `service`, `version`, `env`, `timestamp`, `requestId` |
+| GET | `/api/v1/catalog/meta` | Público | Versión, `sha256` del bundle y estado de firma (`status`, `validatedBy`, `validatedAt`) |
+| GET | `/api/v1/catalog/parameters` | Público | Parámetros con unidad canónica y decimales de presentación |
+| GET | `/api/v1/catalog/units` | Público | Unidades con su factor explícito a la unidad canónica |
+| GET | `/api/v1/catalog/limits` | Público | Límites del catálogo (filtros `parameterCode`, `regulation`), `draft` incluidos |
+| GET | `/api/v1/catalog/regulations` | Público | Regulaciones citadas por el catálogo |
+| POST | `/api/v1/screening/evaluate` | Público | Screening **referencial** de una observación contra un límite: `flag`, `reason`, `limitApplied`, `warnings[]` |
+| GET | `/api/v1/screening/limits` | Público | Límites que el selector puede citar (`parameterCode` + `regulation` + contexto/área) |
 | POST | `/api/v1/ingest/observations` | `X-API-Key` + `Idempotency-Key` | Lote atómico e idempotente: `{catalogVersion, site, samples[], observations[]}` → `{accepted, duplicates}` |
 
-El endpoint de ingesta exige `X-API-Key` **y** `Idempotency-Key`; toda la lectura es pública. Un
-lote se valida completo antes de escribir: cualquier fila inválida (`UNKNOWN_PARAMETER`,
-`UNIT_MISMATCH`, `VALIDATION_ERROR`) deja la base intacta, y repetir la misma key con el mismo
-cuerpo devuelve la respuesta guardada sin reprocesar. Ningún error sale de la API con otra forma
-que `application/problem+json`.
+El único endpoint de escritura es la ingesta: exige `X-API-Key` **y** `Idempotency-Key`; toda la
+lectura y el screening son públicos porque analizan datos ya publicados. Un lote se valida
+completo antes de escribir: cualquier fila inválida (`UNKNOWN_PARAMETER`, `UNIT_MISMATCH`,
+`VALIDATION_ERROR`) deja la base intacta, y repetir la misma key con el mismo cuerpo devuelve la
+respuesta guardada sin reprocesar. Ningún error sale de la API con otra forma que
+`application/problem+json`.
+
+El screening responde `not_evaluable` (con motivo en español) mientras ningún límite tenga
+`status = validated`: hoy los 60 límites del catálogo están `draft-verified`, así que **no
+compara nada todavía**. Eso es el comportamiento correcto, no una falla (ADR-012).
+
 
 ## Reset de la base de datos (solo desarrollo)
 
@@ -107,6 +120,23 @@ uv run pytest -q -m "not integration"
 Convenciones del proyecto: JSON en camelCase, fechas ISO-8601 en UTC, tablas en el esquema
 `aquametric`, límites de control ≠ límites normativos ≠ LOQ, y screening **referencial** (nunca
 un dictamen de cumplimiento legal).
+
+## Despliegue
+
+La imagen se construye con el **contexto en la raíz del repositorio**, no en `api/`: necesita la
+copia sincronizada de `catalog/` o toda lectura del catálogo falla en runtime (hallazgo H1-A4,
+ADR-014).
+
+```bash
+docker build -f api/Dockerfile -t aquametric-api:test .
+docker run --rm aquametric-api:test ls /app/catalog   # debe listar los 5 archivos del catálogo
+```
+
+En Render, `render.yaml` ya declara `dockerfilePath: ./api/Dockerfile`, `dockerContext: .` y las
+variables: `CATALOG_DIR=/app/catalog` viene fija, `DATABASE_URL` y `CORS_ORIGINS` se cargan en el
+panel (ningún secreto en el repo) e `INGEST_API_KEY` se genera. Antes de dar la URL por buena:
+`GET /api/v1/health` responde 200 y `POST /api/v1/screening/evaluate` devuelve `not_evaluable` con
+motivo (nunca 500, que sería la señal de que el catálogo no entró en la imagen).
 
 ## Documentación
 

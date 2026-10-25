@@ -1,0 +1,24 @@
+# Render blueprint for the API (ADR-004: the demo lives on Render, independent of AWS).
+#
+# The build context is the REPOSITORY ROOT, not api/: the image must carry the synchronized
+# `catalog/` copy or every catalog read fails at runtime (finding H1-A4, ADR-014).
+services:
+  - type: web
+    name: aquametric-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: ENV
+        value: production
+      - key: CATALOG_DIR
+        value: /app/catalog
+      # Set in the Render dashboard: no secret is committed to the repository.
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: INGEST_API_KEY
+        generateValue: true

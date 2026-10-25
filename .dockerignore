@@ -1,0 +1,27 @@
+# Build context is the repository root: `api/Dockerfile` plus `catalog/`.
+#   docker build -f api/Dockerfile -t aquametric-api:test .
+# Keep the context small — only api/ (code + lockfile) and catalog/ are copied into the image.
+.git
+.github
+.clinerules
+.venv
+**/.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.mypy_cache
+**/.pytest_cache
+**/.ruff_cache
+**/.coverage
+**/htmlcov
+**/*.log
+api/tests
+api/.env
+api/.env.*
+docs
+scripts
+web
+infra
+lambdas
+docker-compose.yml
+README.md

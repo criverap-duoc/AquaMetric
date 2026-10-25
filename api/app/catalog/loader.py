@@ -66,16 +66,14 @@ def _require_objects(raw: Mapping[str, Any], field: str, *, path: Path) -> list[
     return items
 
 
-def _parse_timestamp(value: str, *, path: Path) -> datetime:
-    """Parse the ISO-8601 timestamp of `updatedAt`; a value without timezone is rejected."""
+def _parse_timestamp(value: str, *, path: Path, field: str = "updatedAt") -> datetime:
+    """Parse an ISO-8601 timestamp; a value without timezone is rejected."""
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise CatalogLoadError(
-            f"{path.name}: campo 'updatedAt' no es ISO-8601 ('{value}')"
-        ) from exc
+        raise CatalogLoadError(f"{path.name}: campo '{field}' no es ISO-8601 ('{value}')") from exc
     if parsed.tzinfo is None:
-        raise CatalogLoadError(f"{path.name}: campo 'updatedAt' sin zona horaria ('{value}')")
+        raise CatalogLoadError(f"{path.name}: campo '{field}' sin zona horaria ('{value}')")
     return parsed.astimezone(UTC)
 
 
@@ -255,6 +253,15 @@ def load_catalog(catalog_dir: Path) -> Catalog:
     version = require_str(meta, "version", path=meta_path)
     bundle_sha256 = require_str(meta, "sha256", path=meta_path)
     generated_at = _parse_timestamp(require_str(meta, "updatedAt", path=meta_path), path=meta_path)
+    # Signature state: `validatedAt` is null while the chemist has not reviewed the values.
+    status = require_str(meta, "status", path=meta_path)
+    validated_by = optional_str(meta, "validatedBy", path=meta_path)
+    validated_at_raw = optional_str(meta, "validatedAt", path=meta_path)
+    validated_at = (
+        _parse_timestamp(validated_at_raw, path=meta_path, field="validatedAt")
+        if validated_at_raw is not None
+        else None
+    )
 
     parameters = _load_parameters(catalog_dir, version=version)
     units = _load_units(catalog_dir, version=version)
@@ -266,6 +273,9 @@ def load_catalog(catalog_dir: Path) -> Catalog:
         version=version,
         sha256=bundle_sha256,
         generated_at=generated_at,
+        status=status,
+        validated_by=validated_by,
+        validated_at=validated_at,
         parameters=parameters,
         units=units,
         limits=limits,
