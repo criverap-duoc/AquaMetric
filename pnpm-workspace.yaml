@@ -1,0 +1,6 @@
+# Monorepo workspace: only the web app exists today; the AWS lambdas (Fase G) will be
+# declared as packages here once `lambdas/` is created (01 §3), so `pnpm --filter` keeps
+# working from the repository root.
+packages:
+  - "web"
+  - "lambdas/*"

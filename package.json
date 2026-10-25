@@ -1,0 +1,11 @@
+{
+  "name": "aquametric",
+  "private": true,
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "web:dev": "pnpm --filter web dev",
+    "web:build": "pnpm --filter web build",
+    "web:typecheck": "pnpm --filter web typecheck",
+    "web:lint": "pnpm --filter web lint"
+  }
+}

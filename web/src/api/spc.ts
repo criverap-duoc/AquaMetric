@@ -1,0 +1,70 @@
+import { useQuery } from "@tanstack/react-query";
+
+import { apiFetch } from "@/lib/api-client";
+import type { ControlChartResponse, RuleViolation } from "@/types/api";
+
+/** Minimum Phase I baseline: the number ADR-001 fixes, mirroring `spc/constants.py`. */
+export const MIN_BASELINE_POINTS = 20;
+
+export interface ControlChartParams {
+  siteId: string;
+  parameterCode: string;
+  /** Observations of Phase I used to estimate the limits (20…200). */
+  baselinePoints?: number;
+  /** Observations after the baseline scanned against the limits (1…500). */
+  monitoringPoints?: number;
+}
+
+function chartQuery({ siteId, parameterCode, baselinePoints, monitoringPoints }: ControlChartParams) {
+  const search = new URLSearchParams({ siteId, parameterCode });
+
+  if (baselinePoints !== undefined) {
+    search.set("baselinePoints", String(baselinePoints));
+  }
+
+  if (monitoringPoints !== undefined) {
+    search.set("monitoringPoints", String(monitoringPoints));
+  }
+
+  return search.toString();
+}
+
+export const spcKeys = {
+  all: ["spc"] as const,
+  chart: (params: ControlChartParams) =>
+    [
+      "spc",
+      "chart",
+      params.siteId,
+      params.parameterCode,
+      params.baselinePoints ?? null,
+      params.monitoringPoints ?? null,
+    ] as const,
+  rules: (params: ControlChartParams) =>
+    ["spc", "rules", params.siteId, params.parameterCode, params.baselinePoints ?? null] as const,
+};
+
+/**
+ * I-MR chart of one series: control limits estimated in Phase I plus the signals the rules
+ * found in the monitoring window. These are control limits, not normative limits.
+ *
+ * Disabled until both a site UUID and a parameter code are known, because the endpoint needs
+ * a real series to answer; `siteId` must be the UUID stored in `aquametric.site`.
+ */
+export function useControlChart(params: ControlChartParams) {
+  return useQuery<ControlChartResponse>({
+    queryKey: spcKeys.chart(params),
+    queryFn: () =>
+      apiFetch<ControlChartResponse>(`/api/v1/spc/control-charts?${chartQuery(params)}`),
+    enabled: Boolean(params.siteId) && Boolean(params.parameterCode),
+  });
+}
+
+/** Only the signals of the monitoring window: the list the chart response returns. */
+export function useRuleViolations(params: ControlChartParams) {
+  return useQuery<RuleViolation[]>({
+    queryKey: spcKeys.rules(params),
+    queryFn: () => apiFetch<RuleViolation[]>(`/api/v1/spc/rules?${chartQuery(params)}`),
+    enabled: Boolean(params.siteId) && Boolean(params.parameterCode),
+  });
+}

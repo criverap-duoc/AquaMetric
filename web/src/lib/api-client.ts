@@ -1,20 +1,8 @@
+import type { ProblemJson } from "@/types/api";
+
+export type { ProblemError, ProblemJson } from "@/types/api";
+
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-
-export interface ProblemError {
-  field: string;
-  message: string;
-}
-
-/** RFC 9457 payload returned by the API for every error. */
-export interface ProblemJson {
-  type: string;
-  title: string;
-  status: number;
-  code: string;
-  detail: string;
-  requestId: string;
-  errors: ProblemError[];
-}
 
 export class ApiError extends Error {
   readonly status: number;
