@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.core.db import create_engine, create_session_factory
 from app.core.errors import register_exception_handlers
 from app.core.logging import RequestIdMiddleware, configure_logging
-from app.routers import catalog, health, ingest, screening
+from app.routers import catalog, health, ingest, screening, spc
 
 # Single place that versions the public API; routers declare only their resource segment.
 API_PREFIX: Final = "/api/v1"
@@ -59,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(catalog.router, prefix=API_PREFIX)
     app.include_router(screening.router, prefix=API_PREFIX)
     app.include_router(ingest.router, prefix=API_PREFIX)
+    app.include_router(spc.router, prefix=API_PREFIX)
     return app
 
 

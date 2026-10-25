@@ -132,6 +132,27 @@ class IdempotencyKeyReuseError(DomainError):
     title = "Idempotency key reuse"
 
 
+class NotFoundError(DomainError):
+    """404: the resource is well identified but nothing is stored under it."""
+
+    code = ErrorCode.NOT_FOUND
+    status = 404
+    title = "Not found"
+
+
+class InsufficientDataError(DomainError):
+    """422: the series cannot support a defensible statistical answer (02 §8).
+
+    Reserved for semantics, never for malformed payloads: that is the 400 of
+    `ValidationFailedError`. The message says how many points are missing, because the analyst
+    can act on that and cannot act on a stack trace.
+    """
+
+    code = ErrorCode.INSUFFICIENT_DATA
+    status = 422
+    title = "Insufficient data"
+
+
 # Status -> (code, title, Spanish detail) for errors raised by the framework layer.
 _HTTP_ERRORS: dict[int, tuple[str, str, str]] = {
     400: ("VALIDATION_ERROR", "Invalid request", "La solicitud contiene datos inválidos."),
