@@ -64,7 +64,15 @@ async def list_screening_limits(
     parameter_code: Annotated[
         str, Query(alias="parameterCode", description="Código del parámetro, p. ej. PH.")
     ],
-    regulation: Annotated[str, Query(description="Código de la regulación, p. ej. NCh1333.")],
+    regulation: Annotated[
+        str,
+        Query(
+            description=(
+                "Código de la regulación, p. ej. NCh1333. En `limits[]` el campo se llama "
+                "`regulationCode`."
+            )
+        ),
+    ],
     context: Annotated[str | None, Query(description="Uso del agua (NCh 1.333).")] = None,
     monitoring_area: Annotated[
         str | None, Query(alias="monitoringArea", description="Área de vigilancia (D.S. 53/2014).")

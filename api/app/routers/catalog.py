@@ -71,7 +71,9 @@ async def list_units(catalog: CatalogDep) -> list[UnitRead]:
     summary="List catalog limits",
     description=(
         "Every limit matching the filters, whatever its `status` or `statistic`: the catalog "
-        "browser must show what exists, including limits still pending validation."
+        "browser must show what exists, including limits still pending validation. The filter "
+        "is `regulation` (query) and the field is `regulationCode` (response): same vocabulary "
+        "as the synchronized catalog."
     ),
     responses=_ERRORS,
 )
@@ -81,7 +83,13 @@ async def list_catalog_limits(
         str | None, Query(alias="parameterCode", description="Código del parámetro, p. ej. PH.")
     ] = None,
     regulation: Annotated[
-        str | None, Query(description="Código de la regulación, p. ej. NCh1333.")
+        str | None,
+        Query(
+            description=(
+                "Código de la regulación, p. ej. NCh1333. En la respuesta el campo se llama "
+                "`regulationCode`."
+            )
+        ),
     ] = None,
 ) -> list[CatalogLimitRead]:
     return [

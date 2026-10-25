@@ -100,6 +100,27 @@ compara nada todavía**. Eso es el comportamiento correcto, no una falla (ADR-01
 ./scripts/db_reset.sh    # lee DATABASE_URL de api/.env, recrea aquametric y migra
 ```
 
+## Datos demo (simulador determinista)
+
+Los lotes de TerraPlan son pocos (una campaña no llega a la línea base de 20 puntos), así que la
+demo se alimenta de un simulador propio: sitios `SIM-…`, series horarias con un proceso AR(1) y
+anomalías inyectadas (`shift`, `spike`, `drift`, `dropout`, `censored`). El generador es **puro**
+(recibe la fecha de inicio y el catálogo; nada de reloj ni de base de datos) y la CLI escribe por
+`POST /api/v1/ingest/observations`, igual que TerraPlan:
+
+```bash
+# con la API corriendo en localhost:8000
+./scripts/seed_demo.sh     # 4 sitios x 5 parámetros x 30 días, seed 42
+
+# o una serie concreta
+cd api
+uv run python -m app.simulator.run --site SIM-RIO-MAIPO-01 --parameter PH --seed 42 --days 30 \
+  --events shift,spike --start 2026-09-24T00:00:00Z
+```
+
+Misma semilla + mismo `--start` ⇒ mismos valores: las capturas y el GIF del README se repiten.
+Fijar `--start` (o `DEMO_START`) es también lo que hace reproducible la `Idempotency-Key`.
+
 ## Variables de entorno
 
 Definidas en `api/.env.example` (nunca commitear `.env`): `ENV`, `DATABASE_URL`,

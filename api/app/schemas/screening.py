@@ -4,7 +4,7 @@
 referential disclaimer, so no client can render a flag without the context that qualifies it.
 """
 
-from pydantic import AwareDatetime
+from pydantic import AwareDatetime, Field
 
 from app.schemas.base import CamelModel, StrictCamelModel
 from app.screening import ScreeningFlag
@@ -17,7 +17,9 @@ class LimitApplied(CamelModel):
     «Pendiente de validación», never as an enforceable threshold.
     """
 
-    regulation_code: str
+    regulation_code: str = Field(
+        description="Código de la regulación del catálogo (p. ej. NCh1333)."
+    )
     statistic: str
     min: float | None
     max: float | None
@@ -46,7 +48,12 @@ class ScreeningRequest(StrictCamelModel):
     value: float
     unit_code: str
     analyzed_at: AwareDatetime
-    regulation: str
+    regulation: str = Field(
+        description=(
+            "Código de la regulación (p. ej. NCh1333). Se llama `regulation` en las entradas y "
+            "`regulationCode` en las respuestas, igual que el campo del catálogo."
+        )
+    )
     context: str | None = None
     monitoring_area: str | None = None
     quality_level: str | None = None
