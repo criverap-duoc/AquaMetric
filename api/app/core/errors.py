@@ -5,6 +5,7 @@ shape as TerraPlan (stable `code`, Spanish `detail`, correlation id).
 """
 
 import logging
+from enum import StrEnum
 from typing import ClassVar, TypedDict
 from uuid import uuid4
 
@@ -37,6 +38,28 @@ class ProblemDetail(TypedDict):
     errors: list[FieldError]
 
 
+class ErrorCode(StrEnum):
+    """Stable machine-readable codes.
+
+    This is the table of `02 §8`, mirrored by TerraPlan: clients branch on these, never on
+    the Spanish `detail`. Codes without a subclass yet (`INSUFFICIENT_DATA`,
+    `UPSTREAM_UNAVAILABLE`) belong to slices that do not exist; they are listed so the
+    contract is complete in one place.
+    """
+
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    UNKNOWN_PARAMETER = "UNKNOWN_PARAMETER"
+    UNIT_MISMATCH = "UNIT_MISMATCH"
+    UNAUTHORIZED = "UNAUTHORIZED"
+    NOT_FOUND = "NOT_FOUND"
+    CONFLICT = "CONFLICT"
+    CATALOG_VERSION_MISMATCH = "CATALOG_VERSION_MISMATCH"
+    IDEMPOTENCY_KEY_REUSE = "IDEMPOTENCY_KEY_REUSE"
+    INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+    UPSTREAM_UNAVAILABLE = "UPSTREAM_UNAVAILABLE"
+    INTERNAL = "INTERNAL"
+
+
 class DomainError(Exception):
     """Base class for expected business failures.
 
@@ -44,13 +67,69 @@ class DomainError(Exception):
     by hand and the stable code table lives in one place.
     """
 
-    code: ClassVar[str] = "INTERNAL"
+    code: ClassVar[str] = ErrorCode.INTERNAL
     status: ClassVar[int] = 500
     title: ClassVar[str] = "Internal error"
 
     def __init__(self, detail: str) -> None:
         super().__init__(detail)
         self.detail = detail
+
+
+class ValidationFailedError(DomainError):
+    """400: well-formed payload that contradicts the catalog or the stored data."""
+
+    code = ErrorCode.VALIDATION_ERROR
+    status = 400
+    title = "Invalid request"
+
+
+class UnknownParameterError(DomainError):
+    """400: `parameterCode` is not in the synchronized catalog."""
+
+    code = ErrorCode.UNKNOWN_PARAMETER
+    status = 400
+    title = "Unknown parameter"
+
+
+class UnitMismatchError(DomainError):
+    """400: the unit does not exist or does not measure the parameter's dimension."""
+
+    code = ErrorCode.UNIT_MISMATCH
+    status = 400
+    title = "Unit mismatch"
+
+
+class UnauthorizedError(DomainError):
+    """401: missing or wrong `X-API-Key`. The only guard the API has (ADR-011)."""
+
+    code = ErrorCode.UNAUTHORIZED
+    status = 401
+    title = "Unauthorized"
+
+
+class ConflictError(DomainError):
+    """409: the request contradicts a unique constraint already stored."""
+
+    code = ErrorCode.CONFLICT
+    status = 409
+    title = "Conflict"
+
+
+class CatalogVersionMismatchError(DomainError):
+    """409: the payload was produced against a different catalog major."""
+
+    code = ErrorCode.CATALOG_VERSION_MISMATCH
+    status = 409
+    title = "Catalog version mismatch"
+
+
+class IdempotencyKeyReuseError(DomainError):
+    """409: the same `Idempotency-Key` arrived with a different body (ADR-009)."""
+
+    code = ErrorCode.IDEMPOTENCY_KEY_REUSE
+    status = 409
+    title = "Idempotency key reuse"
 
 
 # Status -> (code, title, Spanish detail) for errors raised by the framework layer.

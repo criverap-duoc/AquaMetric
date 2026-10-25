@@ -8,7 +8,7 @@ from app.core.clock import ClockDep
 from app.core.config import SettingsDep
 from app.schemas.base import CamelModel
 
-router = APIRouter(prefix="/api/v1", tags=["health"])
+router = APIRouter(tags=["health"])
 
 
 class HealthResponse(CamelModel):

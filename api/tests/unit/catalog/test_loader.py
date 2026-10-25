@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from app.catalog.loader import (
+from app.catalog import (
     ABSOLUTE_STATISTICS,
     CATALOG_FILES,
     Catalog,

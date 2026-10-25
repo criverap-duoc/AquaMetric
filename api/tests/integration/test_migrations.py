@@ -6,25 +6,17 @@ Docker-free (03 §2).
 """
 
 import asyncio
-import os
-import subprocess
-import sys
 import uuid
-from collections.abc import Iterator
 from datetime import UTC, datetime
 from decimal import Decimal
-from pathlib import Path
 
 import asyncpg
 import pytest
-from testcontainers.community.postgres import PostgresContainer
+
+from tests.integration.db import dsn, run_alembic
 
 pytestmark = pytest.mark.integration
 
-# tests/integration/test_migrations.py -> api/
-API_DIR = Path(__file__).parents[2]
-
-TEST_INGEST_API_KEY = "test-ingest-api-key-0001"
 APP_TABLES = {"ingest_idempotency", "observation", "sample", "site", "spc_baseline"}
 VERSION_TABLE = "alembic_version"
 
@@ -55,41 +47,8 @@ INSERT_MEASURED = """
 COUNT_OBSERVATIONS = "SELECT count(*) FROM aquametric.observation WHERE site_id = $1"
 
 
-@pytest.fixture(scope="session")
-def database_url() -> Iterator[str]:
-    """Migrate one throwaway database for the whole session; the container dies with it."""
-    with PostgresContainer("postgres:16-alpine", driver="asyncpg") as container:
-        url = container.get_connection_url()
-        _run_alembic(url, "upgrade", "head")
-        yield url
-
-
-def _dsn(database_url: str) -> str:
-    """asyncpg wants the plain scheme; `+asyncpg` is SQLAlchemy's driver marker."""
-    return database_url.replace("postgresql+asyncpg://", "postgresql://")
-
-
-def _run_alembic(database_url: str, *args: str) -> None:
-    """Run the real CLI, like a deploy does: environment variables are its only input."""
-    env = {
-        **os.environ,
-        "ENV": "ci",
-        "DATABASE_URL": database_url,
-        "INGEST_API_KEY": TEST_INGEST_API_KEY,
-    }
-    completed = subprocess.run(  # noqa: S603  # fixed argv, no shell, no user input
-        [sys.executable, "-m", "alembic", *args],
-        cwd=API_DIR,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert completed.returncode == 0, completed.stderr
-
-
 async def _table_names(database_url: str) -> set[str]:
-    connection = await asyncpg.connect(_dsn(database_url))
+    connection = await asyncpg.connect(dsn(database_url))
     try:
         rows = await connection.fetch(TABLE_NAMES)
     finally:
@@ -100,7 +59,7 @@ async def _table_names(database_url: str) -> set[str]:
 async def _seed_site_and_sample(database_url: str, code: str) -> tuple[uuid.UUID, uuid.UUID]:
     """Create the minimum rows every observation needs; each test uses its own site code."""
     site_id, sample_id = uuid.uuid4(), uuid.uuid4()
-    connection = await asyncpg.connect(_dsn(database_url))
+    connection = await asyncpg.connect(dsn(database_url))
     try:
         await connection.execute(INSERT_SITE, site_id, code, f"Sitio {code}", "river")
         await connection.execute(
@@ -123,23 +82,23 @@ async def test_upgrade_creates_all_tables_in_the_aquametric_schema(database_url:
 
 async def test_downgrade_and_upgrade_are_reversible(database_url: str) -> None:
     """A failed deploy must roll back: the first migration has to be undoable."""
-    await asyncio.to_thread(_run_alembic, database_url, "downgrade", "-1")
+    await asyncio.to_thread(run_alembic, database_url, "downgrade", "-1")
     assert await _table_names(database_url) - {VERSION_TABLE} == set()
 
-    await asyncio.to_thread(_run_alembic, database_url, "upgrade", "head")
+    await asyncio.to_thread(run_alembic, database_url, "upgrade", "head")
     assert await _table_names(database_url) == APP_TABLES | {VERSION_TABLE}
 
 
 async def test_models_and_migrations_agree(database_url: str) -> None:
     """`alembic check` fails on any drift between `app/models` and the applied schema."""
-    await asyncio.to_thread(_run_alembic, database_url, "check")
+    await asyncio.to_thread(run_alembic, database_url, "check")
 
 
 async def test_natural_key_skips_a_repeated_observation(database_url: str) -> None:
     """A retried batch collides on the natural key instead of duplicating rows (ADR-009)."""
     site_id, sample_id = await _seed_site_and_sample(database_url, "SIM-TEST-NATURAL")
     analyzed_at = datetime(2026, 10, 1, 12, tzinfo=UTC)
-    connection = await asyncpg.connect(_dsn(database_url))
+    connection = await asyncpg.connect(dsn(database_url))
     try:
         await connection.execute(
             INSERT_OBSERVATION,
@@ -174,7 +133,7 @@ async def test_censored_rows_store_the_loq_and_never_a_value(database_url: str) 
     """`value` and `qualifier` must agree: `< LOQ` rows carry the LOQ and no value (ADR-003)."""
     site_id, sample_id = await _seed_site_and_sample(database_url, "SIM-TEST-CENSORED")
     analyzed_at = datetime(2026, 10, 1, 13, tzinfo=UTC)
-    connection = await asyncpg.connect(_dsn(database_url))
+    connection = await asyncpg.connect(dsn(database_url))
     try:
         await connection.execute(
             INSERT_MEASURED,
@@ -210,7 +169,7 @@ async def test_censored_rows_store_the_loq_and_never_a_value(database_url: str) 
 async def test_observation_requires_an_existing_sample(database_url: str) -> None:
     """The foreign key is the guard: an observation cannot cite a sample that does not exist."""
     site_id, _ = await _seed_site_and_sample(database_url, "SIM-TEST-FK")
-    connection = await asyncpg.connect(_dsn(database_url))
+    connection = await asyncpg.connect(dsn(database_url))
     try:
         with pytest.raises(asyncpg.exceptions.ForeignKeyViolationError):
             await connection.execute(
