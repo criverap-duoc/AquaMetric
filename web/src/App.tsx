@@ -6,7 +6,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ResumenPage } from "@/features/resumen/ResumenPage";
 import { SitiosPage } from "@/features/sitios/SitiosPage";
 import { AjustesPage } from "@/pages/AjustesPage";
-import { ControlPage } from "@/pages/ControlPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { PipelinePage } from "@/pages/PipelinePage";
 import { ScreeningPage } from "@/pages/ScreeningPage";
@@ -15,6 +14,10 @@ import { ScreeningPage } from "@/pages/ScreeningPage";
 // paint of the dashboard stays light.
 const SeriesPage = lazy(() =>
   import("@/features/series/SeriesPage").then((module) => ({ default: module.SeriesPage })),
+);
+
+const ControlPage = lazy(() =>
+  import("@/features/control/ControlPage").then((module) => ({ default: module.ControlPage })),
 );
 
 function PageFallback() {

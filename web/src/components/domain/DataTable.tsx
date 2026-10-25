@@ -92,9 +92,9 @@ export function DataTable<TData extends RowData>({
   if (isLoading) {
     return (
       <div className="space-y-2" aria-busy="true">
-        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-10 w-full" />
         {Array.from({ length: SKELETON_ROWS }, (_, index) => (
-          <Skeleton key={index} className="h-9 w-full" />
+          <Skeleton key={index} className="h-10 w-full" />
         ))}
         <span className="sr-only">Cargando tabla…</span>
       </div>

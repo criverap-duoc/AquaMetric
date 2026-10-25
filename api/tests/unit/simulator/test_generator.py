@@ -8,7 +8,8 @@ The event tests pin `ar1_phi = 0`: with the default 0.7 the 20-point windows the
 overlap heavily and the assertions would become statistical instead of deterministic.
 """
 
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from statistics import fmean
 
 import numpy as np
@@ -195,3 +196,34 @@ def test_generate_batch_uses_catalog_units() -> None:
     # 01 §5: una lectura de sensor no cuelga de una muestra de laboratorio.
     assert batch.samples == []
     assert all(observation.sample_id is None for observation in batch.observations)
+
+
+def test_observation_ids_are_unique_across_parameters_and_windows() -> None:
+    """The id of a simulated row carries its parameter and its time window, not only the seed.
+
+    `scripts/seed_demo.sh` reuses one seed for every parameter of a site, so an id built from
+    `(site, index, seed)` made the second parameter collide on the primary key and the whole
+    batch was rejected. The same series replayed over another window has to be new data too,
+    while an identical replay must keep the ids (idempotency, ADR-009).
+    """
+    catalog = load_catalog(REPO_ROOT / "catalog")
+    ph_batch = generate_batch(scenario(days=1), START_AT, catalog)
+    oxygen_batch = generate_batch(
+        replace(scenario(days=1), parameter_code="DO", base_mean=8.4, base_std=0.18),
+        START_AT,
+        catalog,
+    )
+    next_window_batch = generate_batch(scenario(days=1), START_AT + timedelta(days=1), catalog)
+
+    ph_ids = {observation.id for observation in ph_batch.observations}
+    oxygen_ids = {observation.id for observation in oxygen_batch.observations}
+    next_window_ids = {observation.id for observation in next_window_batch.observations}
+
+    assert len(ph_ids) == len(ph_batch.observations)
+    assert ph_ids.isdisjoint(oxygen_ids)
+    assert ph_ids.isdisjoint(next_window_ids)
+    # Same command twice: same ids, so the ingest answers `duplicates` instead of failing.
+    assert ph_ids == {
+        observation.id
+        for observation in generate_batch(scenario(days=1), START_AT, catalog).observations
+    }

@@ -129,7 +129,10 @@ def generate_batch(config: ScenarioConfig, start_at: datetime, catalog: Catalog)
     """Wrap a generated series in the ingest contract (`POST /api/v1/ingest/observations`).
 
     Units come from the catalog (the parameter's canonical unit), never from the simulator, and
-    ids are `uuid5` of the scenario, so re-running a seed rewrites the same rows.
+    ids are `uuid5` of the scenario **and** the time window, so re-running the same command rewrites
+    the same rows instead of failing on the primary key. The seed alone is not enough: the demo
+    script reuses one seed for every parameter of a site, and the same series replayed over another
+    window is a new batch, not a duplicate row (01 §5, ADR-009).
 
     Two consequences of the contract shape what the batch contains:
       * a `dropout` is a missing reading, and the contract has no way to say «no value and no
@@ -173,7 +176,15 @@ def generate_batch(config: ScenarioConfig, start_at: datetime, catalog: Catalog)
 
     observations = [
         ObservationIn(
-            id=uuid5(NAMESPACE_DNS, f"{config.site_code}-{index}-{config.seed}"),
+            # The id material is the whole natural key of a simulated row: site, parameter,
+            # position, seed and the start instant of the window. Leaving the parameter out let
+            # two parameters of one site collide on the primary key (same seed, same index), and
+            # leaving the window out made a re-run over another range collide as well.
+            id=uuid5(
+                NAMESPACE_DNS,
+                f"{config.site_code}-{config.parameter_code}-{index}-{config.seed}-"
+                f"{origin.isoformat()}",
+            ),
             site_id=site.id,
             sample_id=sample.id if uses_sample else None,
             parameter_code=config.parameter_code,
