@@ -24,7 +24,7 @@ Nelson y capacidad de proceso. La UI es pública y de solo lectura.
 | **Screening referencial** | ✅ Fase B | Compara una observación con un límite `validated` del catálogo y responde `normal` / `above_range` / `below_range` / `not_evaluable` |
 | **Simulador determinista** | ✅ Fase C | Genera series AR(1) con eventos (`shift`, `spike`, `drift`, `dropout`, `censored`); misma semilla ⇒ mismos datos |
 | **Núcleo SPC** | ✅ Fase D | Cartas I-MR y X̄-R, reglas de Nelson R1–R5, capacidad Cp/Cpk, línea base con tests golden |
-| **UI pública** | ⏳ Fase E | Dashboard científico de solo lectura (React 19 + Vite + Tailwind 4 + shadcn/ui) |
+| **UI pública** | ✅ Fase E | 7 pantallas de solo lectura (React 19 + Vite + Tailwind 4 + shadcn/ui): resumen, sitios, series, control SPC, screening, pipeline y ajustes, alimentadas por el API |
 | **Despliegue** | ⏳ Fase F | Render (API) + Neon (PostgreSQL) + Vercel (web), README con demo viva |
 | **Pipeline AWS** | ⏳ Fase G | EventBridge → Lambda → S3 → Lambda → API, con SAM (se recorta primero si hay atraso) |
 
@@ -35,10 +35,27 @@ Nelson y capacidad de proceso. La UI es pública y de solo lectura.
 | **A** | Scaffold, config, catálogo sincronizado, esquema `aquametric`, ingesta atómica e idempotente | **cerrada** |
 | **B** | Screening referencial puro + endpoints públicos de lectura (`catalog`, `screening`) | **cerrada** |
 | **C** | Simulador CLI determinista (sitios `SIM-…`) | **cerrada** (C-1) |
-| **D** | Núcleo SPC puro con tests golden; endpoints `spc/baseline` y `spc/control-chart` | **cerrada** la D-1 (núcleo); endpoints en D-2 |
-| **E** | Frontend público de solo lectura (7 pantallas) | pendiente |
-| **F** | Despliegue (Render + Neon + Vercel), CI, ADRs, demo viva | pendiente |
-| **G** | Pipeline AWS con SAM | pendiente (opcional) |
+| **D** | Núcleo SPC puro con tests golden; endpoints `spc/control-charts`, `spc/baseline` y `spc/rules` | **cerrada** (D-1 núcleo, D-2 endpoints) |
+| **E** | Frontend público de solo lectura (7 pantallas) sobre los endpoints reales | **cerrada** (E-1a…E-1e) |
+| **F** | Despliegue (Render + Neon + Vercel), CI, capturas y demo viva | pendiente |
+| **G** | Pipeline AWS con SAM | pendiente (opcional, se recorta primero) |
+
+## Capturas
+
+Las capturas se graban con la demo cargada (`./scripts/seed_demo.sh`, semilla fija) para que el GIF
+se pueda repetir. Carpeta: [`docs/captures/`](docs/captures/).
+
+| Pantalla | Archivo |
+|---|---|
+| Resumen (KPIs y alertas) | `docs/captures/01-resumen.gif` |
+| Control SPC (carta I-MR con reglas R1/R2) | `docs/captures/02-control.gif` |
+| Series (tendencia + tabla de observaciones) | `docs/captures/03-series.gif` |
+
+![Resumen](docs/captures/01-resumen.gif)
+![Control SPC](docs/captures/02-control.gif)
+![Series](docs/captures/03-series.gif)
+
+> ⏳ Pendiente de captura (Fase F): los archivos se agregan en `docs/captures/` al desplegar la demo.
 
 
 ## Stack
@@ -70,7 +87,7 @@ aquametric-fastapi/
 │  │  ├─ core/              # config · clock · db · security · dependencies · errors · logging
 │  │  ├─ models/            # SQLAlchemy 2.0: site · sample · observation · ingest_idempotency · spc_baseline
 │  │  ├─ repositories/      # único acceso a la BD
-│  │  ├─ routers/           # health · ingest · catalog · screening
+│  │  ├─ routers/           # health · catalog · screening · ingest · spc · sites · pipeline
 │  │  ├─ schemas/           # CamelModel y contratos públicos
 │  │  ├─ screening/         # screening referencial puro (sin I/O)
 │  │  ├─ services/          # IngestService: transacción única e idempotencia
@@ -78,44 +95,77 @@ aquametric-fastapi/
 │  │  └─ spc/               # ★ núcleo puro: charts · rules · capability · baseline · constants
 │  └─ tests/                # unit/ · integration/ (Testcontainers) · golden/ (SPC)
 ├─ catalog/                 # copia de solo lectura, sincronizada con scripts/sync_catalog.py
-├─ docs/                    # adr/ · architecture.md · spc-methods.md · glossary.md · design-system.md
+├─ web/                     # UI pública: React 19 + Vite + TypeScript + Tailwind 4 + shadcn/ui
+│  └─ src/
+│     ├─ api/               # clientes TanStack Query (sites · catalog · pipeline · spc)
+│     ├─ components/        # ui/ (shadcn) · domain/ (ControlChart, ScreeningBadge, StatTile…)
+│     ├─ features/          # resumen · sitios · series · control · screening · pipeline · ajustes
+│     └─ lib/               # api-client (problem+json) · format (es-CL)
+├─ docs/                    # adr/ · captures/ · architecture.md · spc-methods.md · glossary.md · design-system.md
 ├─ scripts/                 # sync_catalog.py · db_reset.sh · seed_demo.sh · contrast-check.py
 ├─ .clinerules/             # reglas del proyecto (contexto, estándares, flujos, UI)
 └─ docker-compose.yml       # PostgreSQL local en el puerto 5433
 ```
 
-## Quickstart (local)
+## Demo local en 5 pasos
+
+Requisitos: Docker, `uv` (Python ≥ 3.13), Node ≥ 20 y `pnpm`.
 
 ```bash
-# 0. Código y catálogo
-git clone <url-del-repo> aquametric-fastapi
-cd aquametric-fastapi
-python ../scripts/sync_catalog.py --from-path <ruta-a-terraplan>/catalog   # copia verificada por sha256
-
-# 1. PostgreSQL local (contenedor aquametric-pg en localhost:5433)
+# 1. PostgreSQL local (contenedor aquametric-pg, puerto 5433)
 docker compose up -d postgres
 
-# 2. Dependencias de la API
+# 2. Dependencias de la API (desde api/)
 cd api
 uv sync
 
-# 3. Variables de entorno
+# 3. Variables de entorno (no se commitea: api/.env está en .gitignore)
 cp .env.example .env        # ajustar INGEST_API_KEY
 
-# 4. Esquema de la base (migraciones Alembic)
+# 4. Esquema de la base (migraciones Alembic, esquema aquametric)
 uv run alembic upgrade head
 
-# 5. Servidor
+# 5. API en el puerto 8000
 uv run uvicorn app.main:app --reload --port 8000
 ```
 
-El catálogo ya está commiteado, así que el paso 0 es opcional si solo quieres levantar la API: el
-script existe para re-sincronizar cuando cambie en TerraPlan (y verificar el `sha256`).
+En otra terminal, la UI (puerto 5174):
 
+```bash
+cd web && pnpm install && pnpm dev
+```
 
-OpenAPI: <http://localhost:8000/docs> · Health: <http://localhost:8000/api/v1/health>
+La web apunta al API por `VITE_API_URL` (`web/.env.example` lo fija en `http://localhost:8000`, que
+es también el valor por defecto cuando no hay archivo). El origen de la UI tiene que estar en
+`CORS_ORIGINS` del API: `http://localhost:5174` ya viene así en `api/.env.example`.
+
+Y con la API ya corriendo, los datos de demostración:
+
+```bash
+./scripts/seed_demo.sh     # 4 sitios × 5 parámetros × 30 días; idempotente
+```
+
+| URL | Qué es |
+|---|---|
+| <http://localhost:5174> | UI pública (7 pantallas, solo lectura) |
+| <http://localhost:8000/api/v1/docs> | API interactiva (Swagger UI) |
+| <http://localhost:8000/api/v1/health> | Health check |
+
+**Nota sobre `api/.env`:** las credenciales de `DATABASE_URL` deben coincidir con
+`docker-compose.yml` (`aquametric:aquametric@localhost:5433/aquametric`). El puerto **5433** es a
+propósito: TerraPlan usa 5432 y así ambos proyectos corren a la vez. `INGEST_API_KEY` es
+obligatoria (la API no arranca sin ella) y debe tener al menos 16 caracteres; el simulador la lee
+de `api/.env` o del entorno, nunca de la línea de comandos de este script.
+
+El catálogo ya está commiteado en `catalog/`, así que solo hay que re-sincronizarlo cuando cambie
+en TerraPlan:
+
+```bash
+python ../scripts/sync_catalog.py --from-path <ruta-a-terraplan>/catalog   # verifica el sha256
+```
 
 ## Endpoints
+
 
 | Método | Ruta | Acceso | Descripción |
 |---|---|---|---|
@@ -129,9 +179,14 @@ OpenAPI: <http://localhost:8000/docs> · Health: <http://localhost:8000/api/v1/h
 | GET | `/api/v1/screening/limits` | Público | Límites que el selector puede citar (`parameterCode` + `regulation` + contexto/área) |
 | GET | `/api/v1/sites` | Público | Sitios paginados por `code` (`page`, `pageSize`, `isActive`): entregan el `siteId` que esperan los endpoints SPC |
 | GET | `/api/v1/pipeline/status` | Público | Últimos lotes de `ingest_idempotency` y última lectura por sitio; `awsDeployed=false` cuando el pipeline AWS no existe (ADR-004) |
+| GET | `/api/v1/spc/control-charts` | Público | Carta I-MR de una serie (`siteId`, `parameterCode`, ventana): límites de control, puntos y violaciones `R1`–`R5` |
+| GET | `/api/v1/spc/baseline` | Público | Línea base Fase I persistida de una serie (los mismos números para cualquier cliente) |
+| POST | `/api/v1/spc/baseline` | `X-API-Key` | Congela la línea base Fase I de una serie; recomputarla deja una sola fila por fase |
+| GET | `/api/v1/spc/rules` | Público | Señales del tramo de monitoreo de una serie; lista vacía = en control |
 | POST | `/api/v1/ingest/observations` | `X-API-Key` + `Idempotency-Key` | Lote atómico e idempotente: `{catalogVersion, site, samples[], observations[]}` → `{accepted, duplicates}` |
 
-El único endpoint de escritura es la ingesta: exige `X-API-Key` **y** `Idempotency-Key`; toda la
+Hay dos endpoints de escritura y ambos exigen `X-API-Key`: `POST /api/v1/ingest/observations`
+(además con `Idempotency-Key`) y `POST /api/v1/spc/baseline` (congelar la línea base). Toda la
 lectura y el screening son públicos porque analizan datos ya publicados. Un lote se valida
 completo antes de escribir: cualquier fila inválida (`UNKNOWN_PARAMETER`, `UNIT_MISMATCH`,
 `VALIDATION_ERROR`) deja la base intacta, y repetir la misma key con el mismo cuerpo devuelve la
@@ -161,24 +216,35 @@ anomalías inyectadas (`shift`, `spike`, `drift`, `dropout`, `censored`). El gen
 `POST /api/v1/ingest/observations`, igual que TerraPlan:
 
 ```bash
-# con la API corriendo en localhost:8000
-./scripts/seed_demo.sh     # 4 sitios x 5 parámetros x 30 días, seed 42
+# con la API corriendo en localhost:8000 (y con api/.env ya copiado)
+./scripts/seed_demo.sh
 
 # o una serie concreta
 cd api
 uv run python -m app.simulator.run --site SIM-RIO-MAIPO-01 --parameter PH --seed 42 --days 30 \
-  --events shift,spike --start 2026-09-24T00:00:00Z
+  --events shift,spike --start 2026-09-26T00:00:00Z
 ```
 
-Misma semilla + mismo `--start` ⇒ mismos valores: las capturas y el GIF del README se repiten.
-Fijar `--start` (o `DEMO_START`) es también lo que hace reproducible la `Idempotency-Key`.
+El script exige la API arriba (`/api/v1/health`) y el catálogo sincronizado, y después envía **20
+lotes** (4 sitios × 5 parámetros, 706 lecturas cada uno) con una semilla propia por combinación
+(`SEED_BASE + índice`, por defecto 42…61), las cinco anomalías en cada serie y una ventana fija:
+el inicio es la medianoche UTC de hace 29 días (`DEMO_START` la congela). Al terminar verifica
+`/api/v1/sites` e imprime `OK: 4 sitios, 5 parámetros, 14120 observaciones`.
+
+Es **idempotente**: re-ejecutarlo el mismo día repite la misma `Idempotency-Key`, así que la API
+devuelve la respuesta guardada y no escribe filas nuevas (verificado contando
+`aquametric.observation` antes y después). Misma semilla + mismo `--start` ⇒ mismos valores, que es
+lo que hace repetibles las capturas y el GIF del README.
+
 
 ## Variables de entorno
 
 Definidas en `api/.env.example` (nunca commitear `.env`): `ENV`, `DATABASE_URL`,
 `INGEST_API_KEY` (obligatoria, sin valor por defecto), `CORS_ORIGINS` (allowlist separada por
-comas), `CATALOG_DIR`, `AWS_REGION`, `S3_BUCKET`, `BASELINE_MIN_POINTS`,
+comas), `CATALOG_DIR`, `AWS_REGION`, `S3_BUCKET`, `AWS_PIPELINE_DEPLOYED` (`false` mientras la
+demo escriba directo a la API y la pantalla Pipeline lo diga), `BASELINE_MIN_POINTS`,
 `CENSORED_MAX_FRACTION`, `LOG_LEVEL`.
+
 
 ## Calidad
 

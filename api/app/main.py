@@ -35,11 +35,16 @@ def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.log_level)
 
+    # Docs live under the versioned prefix like every other public route: the README links
+    # `/api/v1/docs` and a spec at `/openapi.json` leaves the API surface split across two roots.
     app = FastAPI(
         title="AquaMetric API",
         version=__version__,
         summary="Water quality monitoring with statistical process control (SPC).",
         lifespan=lifespan,
+        openapi_url=f"{API_PREFIX}/openapi.json",
+        docs_url=f"{API_PREFIX}/docs",
+        redoc_url=f"{API_PREFIX}/redoc",
     )
 
     # Registered first so it is the innermost middleware: CORS stays outermost and
