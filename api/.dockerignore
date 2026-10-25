@@ -1,0 +1,15 @@
+# Build context hygiene: the image only needs pyproject.toml, uv.lock, app/ and alembic/.
+.venv
+__pycache__
+*.pyc
+*.pyo
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+tests
+.env
+.env.*
+!.env.example
+*.log
