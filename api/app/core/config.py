@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     catalog_dir: Path = REPO_ROOT / "catalog"
     aws_region: str = "us-east-1"
     s3_bucket: str | None = None
+    # ADR-004: the live demo feeds the API directly, so the S3 → Lambda pipeline is optional and
+    # the pipeline screen must be able to say so instead of pretending the objects exist.
+    aws_pipeline_deployed: bool = False
     baseline_min_points: int = Field(default=20, ge=2)
     censored_max_fraction: float = Field(default=0.2, ge=0.0, lt=1.0)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"

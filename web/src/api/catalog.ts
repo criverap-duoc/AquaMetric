@@ -1,7 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { apiFetch } from "@/lib/api-client";
-import type { CatalogLimit, CatalogMeta, Parameter, Regulation, Unit } from "@/types/api";
+import { apiFetch, toListEnvelope } from "@/lib/api-client";
+import type {
+  CatalogLimit,
+  CatalogMeta,
+  LimitsMeta,
+  LimitsResponse,
+  Parameter,
+  Regulation,
+  Unit,
+} from "@/types/api";
+
+/** Filters of `GET /api/v1/catalog/limits`; `regulation` in, `regulationCode` out (ADR-015). */
+export interface LimitsParams {
+  parameterCode?: string;
+  regulation?: string;
+  /** `validated` lists only signed limits; `draft-verified` only the pending ones. */
+  status?: "draft-verified" | "validated";
+}
 
 /** Query keys in one place: the cache is shared by the Resumen, Series and Ajustes pages. */
 export const catalogKeys = {
@@ -9,8 +25,14 @@ export const catalogKeys = {
   meta: ["catalog", "meta"] as const,
   parameters: ["catalog", "parameters"] as const,
   units: ["catalog", "units"] as const,
-  limits: (parameterCode?: string, regulation?: string) =>
-    ["catalog", "limits", parameterCode ?? null, regulation ?? null] as const,
+  limits: (params: LimitsParams = {}) =>
+    [
+      "catalog",
+      "limits",
+      params.parameterCode ?? null,
+      params.regulation ?? null,
+      params.status ?? null,
+    ] as const,
   regulations: ["catalog", "regulations"] as const,
 };
 
@@ -56,18 +78,23 @@ export function useUnits() {
 }
 
 /**
- * Catalog limits, optionally narrowed by parameter and regulation.
+ * Catalog limits, optionally narrowed by parameter, regulation and validation status.
  *
  * The list includes limits still pending validation: the catalog browser shows what exists,
- * and `status` is what the UI renders as «Pendiente de validación» (ADR-010).
+ * and `status` is what the UI renders as «Pendiente de validación» (ADR-010). `meta` counts how
+ * many of the returned limits are signed. The envelope is checked at runtime so a backend older
+ * than the frontend shows an error instead of an empty screen.
  */
-export function useLimits(parameterCode?: string, regulation?: string) {
-  return useQuery<CatalogLimit[]>({
-    queryKey: catalogKeys.limits(parameterCode, regulation),
-    queryFn: () =>
-      apiFetch<CatalogLimit[]>(
-        `/api/v1/catalog/limits${buildQuery({ parameterCode, regulation })}`,
-      ),
+export function useLimits(params: LimitsParams = {}) {
+  const path = "/api/v1/catalog/limits";
+
+  return useQuery<LimitsResponse>({
+    queryKey: catalogKeys.limits(params),
+    queryFn: async () => {
+      const payload = await apiFetch<unknown>(`${path}${buildQuery({ ...params })}`);
+
+      return toListEnvelope<CatalogLimit, LimitsMeta>(payload, path);
+    },
     staleTime: 5 * 60_000,
   });
 }

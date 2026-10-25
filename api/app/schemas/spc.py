@@ -43,6 +43,24 @@ class RuleViolationRead(CamelModel):
     description: str = Field(description="Frase en español que la UI muestra junto al punto.")
 
 
+class SpecLimitsRead(CamelModel):
+    """A normative range, published **next to** the control limits and never merged with them.
+
+    Only a limit the chemist signed (`status = validated`) reaches this object: drawing a
+    `draft-verified` value would turn a pending decision into a visual threshold (ADR-010).
+    """
+
+    min: float | None = Field(
+        description="Cota inferior del rango normativo, en la unidad canónica."
+    )
+    max: float | None = Field(
+        description="Cota superior del rango normativo, en la unidad canónica."
+    )
+    unit_code: str = Field(description="Unidad canónica en la que se expresan min y max.")
+    regulation_code: str = Field(description="Regulación que fija el rango (p. ej. NCh1333).")
+    status: str = Field(description="Siempre `validated`: es la única condición para publicarlo.")
+
+
 class BaselineRead(CamelModel):
     """A persisted Phase I baseline, with what makes the limits reproducible (ADR-001)."""
 
@@ -71,6 +89,10 @@ class ControlChartResponse(CamelModel):
     `baselinePersisted = false` means the limits were computed on the fly from the oldest rows
     available: they are correct for this answer but they are not frozen, so `POST /spc/baseline`
     is what makes them reproducible across calls.
+
+    `specLimits` is the normative band, published separately from `individuals`/`movingRange` on
+    purpose: drawing a regulation threshold as if it were a control limit is exactly the
+    confusion ADR-010 exists to prevent.
     """
 
     individuals: ControlLimitsRead
@@ -82,6 +104,13 @@ class ControlChartResponse(CamelModel):
     )
     r: ControlLimitsRead | None = Field(
         default=None, description="Carta R; nula por la misma razón."
+    )
+    spec_limits: SpecLimitsRead | None = Field(
+        default=None,
+        description=(
+            "Rango normativo validado del parámetro, si existe y es único. `null` cuando no hay "
+            "ningún límite `validated` o cuando hay varios contextos posibles."
+        ),
     )
     violations: list[RuleViolationRead] = Field(
         default_factory=list, description="Señales detectadas en la fase de monitoreo."

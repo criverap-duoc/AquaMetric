@@ -99,9 +99,25 @@ export interface LimitApplied {
   qualityLevel: string | null;
 }
 
-/** `GET /api/v1/catalog/limits` — the identified version of a limit. */
+/**
+ * `GET /api/v1/catalog/limits` — the identified version of a limit.
+ *
+ * The payload wraps the rows: `{ data, meta }`, where `meta.validatedCount` says how many of the
+ * returned limits can actually produce a screening flag (ADR-010).
+ */
 export interface CatalogLimit extends LimitApplied {
   parameterCode: string;
+}
+
+export interface LimitsMeta {
+  total: number;
+  validatedCount: number;
+  draftCount: number;
+}
+
+export interface LimitsResponse {
+  data: CatalogLimit[];
+  meta: LimitsMeta;
 }
 
 /* ----------------------------------------------------------- screening --- */
@@ -118,6 +134,23 @@ export interface ScreeningResponse {
   limitApplied: LimitApplied | null;
   exceedanceRatio: number | null;
   warnings: string[];
+}
+
+/**
+ * `POST /api/v1/screening/evaluate` — one value plus the scope that selects a single limit.
+ *
+ * `regulation` with `context` (NCh 1.333) or with `monitoringArea` + `qualityLevel`
+ * (D.S. 53/2014): an ambiguous scope answers `not_evaluable`, never a guess.
+ */
+export interface ScreeningRequest {
+  parameterCode: string;
+  value: number;
+  unitCode: string;
+  analyzedAt: string;
+  regulation: string;
+  context?: string | null;
+  monitoringArea?: string | null;
+  qualityLevel?: string | null;
 }
 
 /* ------------------------------------------------------------------- SPC --- */
@@ -142,6 +175,21 @@ export interface RuleViolation {
 }
 
 /**
+ * Normative range published beside the control limits (ADR-010).
+ *
+ * Only a limit the chemist signed reaches this object; the UI draws it with its own style and
+ * label because a control limit and a regulation threshold are different things (04 §2.5).
+ */
+export interface SpecLimitsRead {
+  min: number | null;
+  max: number | null;
+  unitCode: string;
+  regulationCode: string;
+  /** Always `validated`: the backend never publishes a draft band. */
+  status: string;
+}
+
+/**
  * `GET /api/v1/spc/control-charts` — `app/schemas/spc.py::ControlChartResponse`.
  *
  * The payload carries the limits, the signals and the baseline metadata, but **no series of
@@ -153,6 +201,8 @@ export interface ControlChartResponse {
   movingRange: ControlLimits | null;
   xbar: ControlLimits | null;
   r: ControlLimits | null;
+  /** Normative band, when a single `validated` limit exists for the parameter. */
+  specLimits: SpecLimitsRead | null;
   violations: RuleViolation[];
   /** `false` means the limits were computed on the fly and are not frozen. */
   baselinePersisted: boolean;
@@ -178,17 +228,65 @@ export type WaterBodyType =
   | "drinking";
 
 /**
- * Shape of `aquametric.site`. `GET /sites` is not published yet (Fase F): until then the UI
- * derives the site list from the demo series.
+ * `GET /api/v1/sites` — shape of `aquametric.site` (`app/schemas/site.py::SiteRead`).
+ *
+ * The uuid is the `siteId` the SPC endpoints expect, so the selectors no longer derive it from
+ * the demo series.
  */
 export interface Site {
   id: string;
   code: string;
   name: string;
   waterBodyType: WaterBodyType;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   isActive: boolean;
+}
+
+export interface SiteListMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+/** One page of sites: the paginated envelope of 02 §4. */
+export interface SiteListResponse {
+  data: Site[];
+  meta: SiteListMeta;
+}
+
+/* -------------------------------------------------------------- pipeline --- */
+
+/** `GET /api/v1/pipeline/status` — one accepted batch, from `ingest_idempotency` (ADR-002). */
+export interface BatchSummary {
+  key: string;
+  receivedAt: string;
+  status: string;
+  accepted: number;
+  duplicates: number;
+}
+
+/** Newest observation of one site, with the parameter it measured. */
+export interface SiteLastRead {
+  siteId: string;
+  siteCode: string;
+  parameterCode: string;
+  analyzedAt: string;
+  value: number | null;
+  unitCode: string;
+}
+
+/**
+ * Status of the pipeline screen.
+ *
+ * `awsDeployed = false` means the S3 → Lambda path is not running and the demo feeds the API
+ * directly: an informative state, not an error (ADR-004).
+ */
+export interface PipelineStatusResponse {
+  awsDeployed: boolean;
+  recentBatches: BatchSummary[];
+  lastObservationPerSite: SiteLastRead[];
+  limit: number;
 }
 
 /**

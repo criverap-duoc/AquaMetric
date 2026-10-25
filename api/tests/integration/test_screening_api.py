@@ -129,10 +129,14 @@ async def test_catalog_limits_filter_by_parameter_and_regulation(api_client: Asy
         "/api/v1/catalog/limits", params={"parameterCode": "PH", "regulation": "DS53-2014-MMA"}
     )
 
-    limits = response.json()
+    payload = response.json()
+    limits = payload["data"]
 
     assert response.status_code == 200
     assert limits
     assert all(limit["parameterCode"] == "PH" for limit in limits)
     assert all(limit["statistic"] == "P5_P95" for limit in limits)
     assert all(limit["monitoringAreaCode"] for limit in limits)
+    assert payload["meta"]["total"] == len(limits)
+    assert payload["meta"]["validatedCount"] == 0
+    assert payload["meta"]["draftCount"] == len(limits)

@@ -29,6 +29,7 @@ from app.schemas.spc import (
     ControlChartResponse,
     ControlLimitsRead,
     RuleViolationRead,
+    SpecLimitsRead,
 )
 from app.spc import (
     ControlLimits,
@@ -45,6 +46,11 @@ logger = logging.getLogger(__name__)
 
 IMR_METHOD: Final = "imr"
 DEFAULT_MONITORING_POINTS: Final = 100
+VALIDATED_STATUS: Final = "validated"
+
+# A chart can show a single band, so the first regulation with a signed limit wins; the order is
+# the same one the screening defaults to (ADR-012).
+SPEC_REGULATION_PREFERENCE: Final = ("NCh1333", "DS53-2014-MMA")
 
 # The sentence the UI must never be able to drop (ADR-010).
 SCREENING_WARNING: Final = "Screening referencial, no dictamen de cumplimiento legal."
@@ -123,6 +129,7 @@ class SpcService:
         return ControlChartResponse(
             individuals=_limits_read(imr.individuals),
             moving_range=_limits_read(imr.moving_range),
+            spec_limits=self._spec_limits(parameter_code),
             violations=[_violation_read(violation) for violation in violations],
             baseline_persisted=persisted is not None,
             baseline_metadata=metadata,
@@ -213,6 +220,68 @@ class SpcService:
         """Only the signals of the monitoring window; the chart itself is another endpoint."""
         chart = await self.compute_chart(site_id, parameter_code, baseline_points=baseline_points)
         return chart.violations
+
+    def _spec_limits(self, parameter_code: str) -> SpecLimitsRead | None:
+        """The normative range that may be drawn beside the control limits, if it is unique.
+
+        Only `status = validated` limits are published: a `draft-verified` value is a decision the
+        chemist has not signed yet, and drawing it would turn a pending value into a threshold
+        (ADR-010). The first regulation of `SPEC_REGULATION_PREFERENCE` that has a signed limit
+        wins; if that regulation has several signed limits (one per water use or monitoring
+        area) there is no single band to draw, so the answer is `None` instead of a guess.
+        """
+        parameter = self._catalog.parameters[parameter_code]
+        canonical = self._catalog.units.get(parameter.canonical_unit_code)
+        if canonical is None or canonical.factor_to_canonical == 0:
+            logger.warning(
+                "canonical unit missing from the catalog",
+                extra={"parameterCode": parameter_code},
+            )
+            return None
+
+        for regulation in SPEC_REGULATION_PREFERENCE:
+            validated = [
+                limit
+                for limit in self._catalog.limits
+                if limit.parameter_code == parameter_code
+                and limit.regulation_code == regulation
+                and limit.status == VALIDATED_STATUS
+            ]
+            if not validated:
+                continue
+            if len(validated) > 1:
+                logger.info(
+                    "normative range omitted: several validated limits match",
+                    extra={"parameterCode": parameter_code, "regulationCode": regulation},
+                )
+                return None
+            limit = validated[0]
+            if limit.min is None and limit.max is None:
+                return None
+            scale = self._unit_scale(limit.unit_code, canonical.factor_to_canonical)
+            if scale is None:
+                return None
+            return SpecLimitsRead(
+                min=None if limit.min is None else limit.min * scale,
+                max=None if limit.max is None else limit.max * scale,
+                unit_code=parameter.canonical_unit_code,
+                regulation_code=limit.regulation_code,
+                status=limit.status,
+            )
+        return None
+
+    def _unit_scale(self, unit_code: str, canonical_factor: float) -> float | None:
+        """Factor that converts a limit published in `unit_code` to the canonical unit.
+
+        The catalog stores most limits already in the canonical unit, but a regulation that
+        publishes µg/L for a mg/L parameter must not end up drawn three orders of magnitude off.
+        An unknown unit means the value cannot be positioned, so the range is omitted.
+        """
+        unit = self._catalog.units.get(unit_code)
+        if unit is None:
+            logger.warning("limit unit missing from the catalog", extra={"unitCode": unit_code})
+            return None
+        return unit.factor_to_canonical / canonical_factor
 
     def _require_parameter(self, code: str) -> None:
         if code not in self._catalog.parameters:

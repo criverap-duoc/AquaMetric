@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError
@@ -24,6 +24,29 @@ class SiteRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def list_paginated(
+        self,
+        page: int,
+        page_size: int,
+        is_active: bool | None = None,
+    ) -> tuple[list[Site], int]:
+        """One page of sites plus the total that matches the filter.
+
+        Ordering is by `code`, not by insertion: a paginated list without a stable sort can
+        repeat or skip rows between pages. The count and the page share the same filter, so the
+        footer of the table can never disagree with the rows it shows.
+        """
+        filters = [] if is_active is None else [Site.is_active.is_(is_active)]
+        total = await self._session.scalar(select(func.count()).select_from(Site).where(*filters))
+        rows = await self._session.scalars(
+            select(Site)
+            .where(*filters)
+            .order_by(Site.code)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list(rows), int(total or 0)
 
     async def upsert_by_id(self, site_in: SiteIn) -> Site:
         """Insert or update one site, without committing (the service owns the unit of work)."""

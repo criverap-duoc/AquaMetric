@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { useCatalogMeta, useParameters } from "@/api/catalog";
+import { useSites } from "@/api/sites";
 import { MIN_BASELINE_POINTS } from "@/api/spc";
 import { DataTable } from "@/components/domain/DataTable";
 import { ErrorState } from "@/components/domain/ErrorState";
@@ -49,6 +50,7 @@ interface FilterPanelProps {
   siteCode: string;
   parameterCode: string;
   range: RangePreset;
+  siteOptions: Array<{ code: string; label: string }>;
   parameterOptions: Array<{ code: string; label: string }>;
   onChange: (patch: { site?: string; param?: string; range?: RangePreset }) => void;
 }
@@ -58,6 +60,7 @@ function FilterPanel({
   siteCode,
   parameterCode,
   range,
+  siteOptions,
   parameterOptions,
   onChange,
 }: FilterPanelProps) {
@@ -72,9 +75,9 @@ function FilterPanel({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {DEMO_SITES.map((site) => (
+            {siteOptions.map((site) => (
               <SelectItem key={site.code} value={site.code}>
-                {site.code}
+                {site.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -150,12 +153,29 @@ export function SeriesPage() {
     [parametersQuery.data],
   );
 
+  const sitesQuery = useSites({ page: 1, pageSize: 100 });
+
+  // Real sites come from the API; the demo list is only a fallback for an unseeded database.
+  const siteOptions = useMemo(() => {
+    const apiSites = sitesQuery.data?.data ?? [];
+
+    if (apiSites.length > 0) {
+      return apiSites.map((site) => ({ code: site.code, label: `${site.code} · ${site.name}` }));
+    }
+
+    return DEMO_SITES.map((site) => ({ code: site.code, label: `${site.code} · ${site.name}` }));
+  }, [sitesQuery.data]);
+
   const parameterOptions = DEMO_PARAMETER_CODES.map((code) => ({
     code,
     label: parametersByCode.get(code)?.nameEs ?? code,
   }));
 
-  const siteCode = searchParams.get("site") ?? DEMO_SITES[0].code;
+  const requestedSite = searchParams.get("site");
+  const siteCode =
+    siteOptions.find((option) => option.code === requestedSite)?.code ??
+    siteOptions[0]?.code ??
+    DEMO_SITES[0].code;
   const parameterCode = searchParams.get("param") ?? DEMO_PARAMETER_CODES[0];
   const rawRange = searchParams.get("range");
   const range: RangePreset = isRangePreset(rawRange) ? rawRange : DEFAULT_RANGE;
@@ -255,6 +275,7 @@ export function SeriesPage() {
           siteCode={siteCode}
           parameterCode={parameterCode}
           range={range}
+          siteOptions={siteOptions}
           parameterOptions={parameterOptions}
           onChange={updateFilters}
         />
@@ -270,6 +291,7 @@ export function SeriesPage() {
               siteCode={siteCode}
               parameterCode={parameterCode}
               range={range}
+              siteOptions={siteOptions}
               parameterOptions={parameterOptions}
               onChange={updateFilters}
             />

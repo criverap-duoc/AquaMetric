@@ -123,10 +123,12 @@ OpenAPI: <http://localhost:8000/docs> · Health: <http://localhost:8000/api/v1/h
 | GET | `/api/v1/catalog/meta` | Público | Versión, `sha256` del bundle y estado de firma (`status`, `validatedBy`, `validatedAt`) |
 | GET | `/api/v1/catalog/parameters` | Público | Parámetros con unidad canónica y decimales de presentación |
 | GET | `/api/v1/catalog/units` | Público | Unidades con su factor explícito a la unidad canónica |
-| GET | `/api/v1/catalog/limits` | Público | Límites del catálogo (filtros `parameterCode`, `regulation`), `draft` incluidos |
+| GET | `/api/v1/catalog/limits` | Público | Límites del catálogo (`parameterCode`, `regulation`, `context`, `monitoringArea`, `qualityLevel`, `status`); `meta` cuenta validados y pendientes |
 | GET | `/api/v1/catalog/regulations` | Público | Regulaciones citadas por el catálogo |
 | POST | `/api/v1/screening/evaluate` | Público | Screening **referencial** de una observación contra un límite: `flag`, `reason`, `limitApplied`, `warnings[]` |
 | GET | `/api/v1/screening/limits` | Público | Límites que el selector puede citar (`parameterCode` + `regulation` + contexto/área) |
+| GET | `/api/v1/sites` | Público | Sitios paginados por `code` (`page`, `pageSize`, `isActive`): entregan el `siteId` que esperan los endpoints SPC |
+| GET | `/api/v1/pipeline/status` | Público | Últimos lotes de `ingest_idempotency` y última lectura por sitio; `awsDeployed=false` cuando el pipeline AWS no existe (ADR-004) |
 | POST | `/api/v1/ingest/observations` | `X-API-Key` + `Idempotency-Key` | Lote atómico e idempotente: `{catalogVersion, site, samples[], observations[]}` → `{accepted, duplicates}` |
 
 El único endpoint de escritura es la ingesta: exige `X-API-Key` **y** `Idempotency-Key`; toda la

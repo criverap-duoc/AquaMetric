@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { useCatalogMeta, useParameters } from "@/api/catalog";
+import { useSites } from "@/api/sites";
 import { MIN_BASELINE_POINTS, useControlChart } from "@/api/spc";
 import { ControlChart } from "@/components/domain/ControlChart";
 import { ErrorState } from "@/components/domain/ErrorState";
@@ -25,7 +26,7 @@ import {
   DEFAULT_PARAMETER_CODE,
   DEFAULT_SITE_CODE,
   controlSeriesFor,
-  controlSiteFor,
+  type ControlSiteOption,
 } from "@/features/control/demo-data";
 import { DEMO_PARAMETER_CODES, findDemoSeries } from "@/features/series/demo-data";
 import { ApiError } from "@/lib/api-client";
@@ -34,6 +35,7 @@ interface FilterPanelProps {
   siteCode: string;
   parameterCode: string;
   baselinePoints: number;
+  siteOptions: Array<{ code: string; label: string }>;
   parameterOptions: Array<{ code: string; label: string }>;
   onChange: (patch: { site?: string; param?: string; baseline?: number }) => void;
 }
@@ -43,6 +45,7 @@ function FilterPanel({
   siteCode,
   parameterCode,
   baselinePoints,
+  siteOptions,
   parameterOptions,
   onChange,
 }: FilterPanelProps) {
@@ -57,9 +60,9 @@ function FilterPanel({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {CONTROL_SITES.map((site) => (
+            {siteOptions.map((site) => (
               <SelectItem key={site.code} value={site.code}>
-                {site.code}
+                {site.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -142,8 +145,32 @@ export function ControlPage() {
     [parametersQuery.data],
   );
 
-  const siteCode = controlSiteFor(searchParams.get("site") ?? "")?.code ?? DEFAULT_SITE_CODE;
-  const site = controlSiteFor(siteCode);
+  const sitesQuery = useSites({ page: 1, pageSize: 100 });
+
+  // Real sites from the API; the demo list keeps the chart working against an unseeded database.
+  const siteOptions = useMemo<ControlSiteOption[]>(() => {
+    const apiSites = sitesQuery.data?.data ?? [];
+
+    if (apiSites.length > 0) {
+      return apiSites.map((site) => ({ id: site.id, code: site.code, name: site.name }));
+    }
+
+    return CONTROL_SITES;
+  }, [sitesQuery.data]);
+
+  const siteSelectOptions = useMemo(
+    () =>
+      siteOptions.map((option) => ({
+        code: option.code,
+        label: `${option.code} · ${option.name}`,
+      })),
+    [siteOptions],
+  );
+
+  const requestedSite = searchParams.get("site");
+  const site =
+    siteOptions.find((option) => option.code === requestedSite) ?? siteOptions[0] ?? null;
+  const siteCode = site?.code ?? DEFAULT_SITE_CODE;
 
   // Only the parameters the demo has a series for: an empty chart would be a dead end.
   const parameterOptions = useMemo(
@@ -249,6 +276,7 @@ export function ControlPage() {
           siteCode={siteCode}
           parameterCode={parameterCode}
           baselinePoints={baselinePoints}
+          siteOptions={siteSelectOptions}
           parameterOptions={parameterOptions}
           onChange={updateFilters}
         />
@@ -264,6 +292,7 @@ export function ControlPage() {
               siteCode={siteCode}
               parameterCode={parameterCode}
               baselinePoints={baselinePoints}
+              siteOptions={siteSelectOptions}
               parameterOptions={parameterOptions}
               onChange={updateFilters}
             />
@@ -322,6 +351,15 @@ export function ControlPage() {
               observations={series.observations}
               individuals={chartQuery.data.individuals}
               movingRange={chartQuery.data.movingRange}
+              specLimits={
+                chartQuery.data.specLimits
+                  ? {
+                      min: chartQuery.data.specLimits.min ?? undefined,
+                      max: chartQuery.data.specLimits.max ?? undefined,
+                      regulationCode: chartQuery.data.specLimits.regulationCode,
+                    }
+                  : null
+              }
               violations={chartQuery.data.violations}
               parameterName={parameterName}
               unitCode={unitCode}

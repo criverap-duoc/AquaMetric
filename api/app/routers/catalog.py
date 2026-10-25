@@ -1,17 +1,19 @@
 """Catalog endpoints: public, read-only views of the synchronized catalog (ADR-005)."""
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
 
 from app.core.dependencies import CatalogDep
 from app.schemas.catalog import (
     CatalogMetaResponse,
+    LimitRead,
+    LimitsMeta,
+    LimitsResponse,
     ParameterRead,
     RegulationRead,
     UnitRead,
 )
-from app.schemas.screening import CatalogLimitRead
 
 # FastAPI's `responses` mapping is untyped (`Any` at the framework boundary); one shared value
 # keeps the five catalog endpoints documented the same way.
@@ -67,13 +69,14 @@ async def list_units(catalog: CatalogDep) -> list[UnitRead]:
 
 @router.get(
     "/limits",
-    response_model=list[CatalogLimitRead],
+    response_model=LimitsResponse,
     summary="List catalog limits",
     description=(
         "Every limit matching the filters, whatever its `status` or `statistic`: the catalog "
         "browser must show what exists, including limits still pending validation. The filter "
         "is `regulation` (query) and the field is `regulationCode` (response): same vocabulary "
-        "as the synchronized catalog."
+        "as the synchronized catalog. `meta.validatedCount` tells how many of the returned "
+        "limits can actually produce a screening flag."
     ),
     responses=_ERRORS,
 )
@@ -91,13 +94,43 @@ async def list_catalog_limits(
             )
         ),
     ] = None,
-) -> list[CatalogLimitRead]:
-    return [
-        CatalogLimitRead.model_validate(limit)
+    context: Annotated[str | None, Query(description="Uso del agua (NCh 1.333).")] = None,
+    monitoring_area: Annotated[
+        str | None, Query(alias="monitoringArea", description="Área de vigilancia (D.S. 53/2014).")
+    ] = None,
+    quality_level: Annotated[
+        str | None, Query(alias="qualityLevel", description="Nivel de calidad (D.S. 53/2014).")
+    ] = None,
+    limit_status: Annotated[
+        Literal["draft-verified", "validated"] | None,
+        Query(
+            alias="status",
+            description=(
+                "Filtra por estado de validación: `validated` solo los firmados por el químico, "
+                "`draft-verified` solo los pendientes."
+            ),
+        ),
+    ] = None,
+) -> LimitsResponse:
+    filtered = [
+        limit
         for limit in catalog.limits
         if (parameter_code is None or limit.parameter_code == parameter_code)
         and (regulation is None or limit.regulation_code == regulation)
+        and (context is None or limit.context == context)
+        and (monitoring_area is None or limit.monitoring_area_code == monitoring_area)
+        and (quality_level is None or limit.quality_level == quality_level)
+        and (limit_status is None or limit.status == limit_status)
     ]
+    validated = sum(1 for limit in filtered if limit.status == "validated")
+    return LimitsResponse(
+        data=[LimitRead.model_validate(limit) for limit in filtered],
+        meta=LimitsMeta(
+            total=len(filtered),
+            validated_count=validated,
+            draft_count=len(filtered) - validated,
+        ),
+    )
 
 
 @router.get(

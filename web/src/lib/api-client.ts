@@ -18,6 +18,56 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Raised when a 2xx payload does not have the shape the screen expects.
+ *
+ * The usual cause is an API older than the frontend (a `uvicorn` started before the endpoint
+ * changed): the request succeeds, the JSON is different, and reading it would crash the render.
+ * Surfacing it as an error keeps the screen on its error state instead of going blank.
+ */
+export class ContractError extends Error {
+  readonly path: string;
+
+  constructor(path: string, expected: string) {
+    super(
+      `La API respondió con un formato inesperado en ${path} (se esperaba ${expected}). ` +
+        "Reinicia el backend con la versión actual y vuelve a intentarlo.",
+    );
+    this.name = "ContractError";
+    this.path = path;
+  }
+}
+
+export interface ListEnvelope<TRow, TMeta> {
+  data: TRow[];
+  meta: TMeta;
+}
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Runtime check of a `{ data[], meta{} }` payload; throws `ContractError` when it does not match. */
+export function toListEnvelope<TRow, TMeta>(
+  payload: unknown,
+  path: string,
+): ListEnvelope<TRow, TMeta> {
+  if (!isRecord(payload) || !Array.isArray(payload.data) || !isRecord(payload.meta)) {
+    throw new ContractError(path, "{ data: [], meta: {} }");
+  }
+
+  return { data: payload.data as TRow[], meta: payload.meta as TMeta };
+}
+
+/** Runtime check of a single-object payload; throws `ContractError` when it is not an object. */
+export function toObject<TObject>(payload: unknown, path: string): TObject {
+  if (!isRecord(payload)) {
+    throw new ContractError(path, "un objeto JSON");
+  }
+
+  return payload as unknown as TObject;
+}
+
 async function readProblem(response: Response): Promise<ProblemJson> {
   const contentType = response.headers.get("content-type") ?? "";
 

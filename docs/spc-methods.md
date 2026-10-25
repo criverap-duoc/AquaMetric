@@ -167,6 +167,22 @@ desviación global.
 - Un punto fuera de límites **no** dice si el agua cumple una norma: eso es la §1 (screening) y
   **no** es un dictamen legal.
 
+### 2.5 El rango normativo dibujado junto a la carta
+
+La carta puede mostrar, además de los límites de control, el rango de una regulación
+(`specLimits`). Se dibuja con **otro estilo** (punto-raya) y otra etiqueta justamente para que
+nadie los confunda: el límite de control describe el proceso, el normativo describe la referencia
+legal. Reglas de publicación:
+
+- Solo se publica un límite con `status = validated`; uno `draft-verified` sigue pendiente de la
+  firma del químico y no se dibuja.
+- Se prefiere `NCh1333`; si el parámetro no tiene límites firmados ahí, se usa `DS53-2014-MMA`.
+- Si la regulación elegida tiene **más de un** límite firmado (varios usos del agua o varias áreas
+  de vigilancia), no hay una sola banda que dibujar y la respuesta es `null` en lugar de elegir
+  una arbitrariamente.
+- Los valores se convierten a la unidad canónica del parámetro con el factor del catálogo; si la
+  unidad del límite no existe en el catálogo, la banda se omite.
+
 ## 3. Cartas X̄-R (subgrupos racionales, n = 2…10)
 
 Se usa cuando hay 2 a 10 mediciones comparables por ocasión (réplicas de laboratorio, varias
