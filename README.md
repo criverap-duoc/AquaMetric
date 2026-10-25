@@ -1,51 +1,97 @@
 # AquaMetric
 
+[![CI](https://img.shields.io/badge/CI-GitHub%20Actions%20(Fase%20F)-lightgrey?logo=githubactions&logoColor=white)](#estado-del-proyecto)
+[![Python](https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![License](https://img.shields.io/badge/License-MIT-green)](./README.md#licencia)
+
 Plataforma de monitoreo de calidad de agua con **control estadístico de procesos (SPC)**.
 Recibe observaciones de laboratorio (TerraPlan) y de un simulador de sensores, las normaliza
 contra un catálogo compartido y las analiza con cartas de control (I-MR / X̄-R), reglas de
 Nelson y capacidad de proceso. La UI es pública y de solo lectura.
 
-> **Estado: Fase A cerrada.** API con `create_app()`, `/api/v1/health`, errores en
-> `application/problem+json`, logging JSON con `requestId`, esquema `aquametric` con Alembic y
-> **ingesta atómica e idempotente** (`POST /api/v1/ingest/observations`). Simulador, SPC y
-> frontend llegan en las fases siguientes.
+> ⚠️ **Screening referencial, no dictamen de cumplimiento.** AquaMetric compara un valor con el
+> rango que publica el catálogo; **no** declara si un sitio cumple la norma. El D.S. 53/2014 se
+> evalúa con percentiles en ventanas de tres años y la NCh 1.333 según el uso del agua, y ninguna
+> de las dos se puede resolver con una observación aislada. Ver
+> [`docs/adr/010-screening-not-compliance.md`](docs/adr/010-screening-not-compliance.md).
+
+## Qué hace
+
+| Pieza | Estado | Qué resuelve |
+|---|---|---|
+| **Ingesta idempotente** | ✅ Fase A | Un solo camino de escritura (`POST /api/v1/ingest/observations`): lote atómico, validado contra el catálogo, con doble idempotencia |
+| **Screening referencial** | ✅ Fase B | Compara una observación con un límite `validated` del catálogo y responde `normal` / `above_range` / `below_range` / `not_evaluable` |
+| **Simulador determinista** | ✅ Fase C | Genera series AR(1) con eventos (`shift`, `spike`, `drift`, `dropout`, `censored`); misma semilla ⇒ mismos datos |
+| **Núcleo SPC** | ✅ Fase D | Cartas I-MR y X̄-R, reglas de Nelson R1–R5, capacidad Cp/Cpk, línea base con tests golden |
+| **UI pública** | ⏳ Fase E | Dashboard científico de solo lectura (React 19 + Vite + Tailwind 4 + shadcn/ui) |
+| **Despliegue** | ⏳ Fase F | Render (API) + Neon (PostgreSQL) + Vercel (web), README con demo viva |
+| **Pipeline AWS** | ⏳ Fase G | EventBridge → Lambda → S3 → Lambda → API, con SAM (se recorta primero si hay atraso) |
+
+## Estado del proyecto
+
+| Fase | Alcance | Estado |
+|---|---|---|
+| **A** | Scaffold, config, catálogo sincronizado, esquema `aquametric`, ingesta atómica e idempotente | **cerrada** |
+| **B** | Screening referencial puro + endpoints públicos de lectura (`catalog`, `screening`) | **cerrada** |
+| **C** | Simulador CLI determinista (sitios `SIM-…`) | **cerrada** (C-1) |
+| **D** | Núcleo SPC puro con tests golden; endpoints `spc/baseline` y `spc/control-chart` | **cerrada** la D-1 (núcleo); endpoints en D-2 |
+| **E** | Frontend público de solo lectura (7 pantallas) | pendiente |
+| **F** | Despliegue (Render + Neon + Vercel), CI, ADRs, demo viva | pendiente |
+| **G** | Pipeline AWS con SAM | pendiente (opcional) |
+
 
 ## Stack
 
 | Capa | Tecnología |
 |---|---|
 | Lenguaje | Python ≥ 3.13 (gestionado con `uv`) |
-| API | FastAPI + Uvicorn |
+| API | FastAPI + Uvicorn (async de punta a punta) |
 | Validación | Pydantic v2 + `pydantic-settings` (JSON en camelCase) |
 | BD | PostgreSQL 16, esquema `aquametric` (SQLAlchemy 2.0 async + asyncpg + Alembic) |
-| Calidad | `ruff`, `mypy`, `pytest` |
+| Estadística | `numpy` (núcleo SPC puro) · `pandas` solo en el simulador |
+| Simulador | Generador determinista `numpy.random.Generator(PCG64(seed))` + CLI |
+| Calidad | `ruff` (lint + format), `mypy`, `pytest` (+ `moto` para S3) |
+| Contenedores | Docker multi-stage (usuario no root) + Docker Compose |
+| Frontend (Fase E) | React 19 + Vite + TypeScript + Tailwind 4 + shadcn/ui + TanStack Query, `pnpm` |
+| AWS (Fase G) | S3 + Lambda + EventBridge Scheduler, IaC con SAM, región `us-east-1` |
+
 
 ## Estructura
 
 ```
 aquametric-fastapi/
 ├─ api/
-│  ├─ pyproject.toml
+│  ├─ pyproject.toml        # uv · ruff · mypy · pytest
 │  ├─ alembic/              # migraciones (version_table_schema = aquametric)
 │  ├─ app/
 │  │  ├─ main.py            # create_app(): settings, middleware, handlers, routers
 │  │  ├─ catalog/           # loader + validación del catálogo sincronizado
 │  │  ├─ core/              # config · clock · db · security · dependencies · errors · logging
-│  │  ├─ models/            # SQLAlchemy 2.0 (esquema aquametric)
+│  │  ├─ models/            # SQLAlchemy 2.0: site · sample · observation · ingest_idempotency · spc_baseline
 │  │  ├─ repositories/      # único acceso a la BD
-│  │  ├─ routers/           # health · ingest
-│  │  ├─ schemas/           # CamelModel y contratos
-│  │  └─ services/          # IngestService: transacción única e idempotencia
-│  └─ tests/                # unit/ · integration/ (Testcontainers)
+│  │  ├─ routers/           # health · ingest · catalog · screening
+│  │  ├─ schemas/           # CamelModel y contratos públicos
+│  │  ├─ screening/         # screening referencial puro (sin I/O)
+│  │  ├─ services/          # IngestService: transacción única e idempotencia
+│  │  ├─ simulator/         # generador determinista + CLI (escribe por la API)
+│  │  └─ spc/               # ★ núcleo puro: charts · rules · capability · baseline · constants
+│  └─ tests/                # unit/ · integration/ (Testcontainers) · golden/ (SPC)
 ├─ catalog/                 # copia de solo lectura, sincronizada con scripts/sync_catalog.py
-├─ docs/                    # ADRs, métodos SPC, glosario, design system
-├─ scripts/                 # sync_catalog.py · db_reset.sh (solo desarrollo)
+├─ docs/                    # adr/ · architecture.md · spc-methods.md · glossary.md · design-system.md
+├─ scripts/                 # sync_catalog.py · db_reset.sh · seed_demo.sh · contrast-check.py
+├─ .clinerules/             # reglas del proyecto (contexto, estándares, flujos, UI)
 └─ docker-compose.yml       # PostgreSQL local en el puerto 5433
 ```
 
-## Quickstart
+## Quickstart (local)
 
 ```bash
+# 0. Código y catálogo
+git clone <url-del-repo> aquametric-fastapi
+cd aquametric-fastapi
+python ../scripts/sync_catalog.py --from-path <ruta-a-terraplan>/catalog   # copia verificada por sha256
+
 # 1. PostgreSQL local (contenedor aquametric-pg en localhost:5433)
 docker compose up -d postgres
 
@@ -62,6 +108,10 @@ uv run alembic upgrade head
 # 5. Servidor
 uv run uvicorn app.main:app --reload --port 8000
 ```
+
+El catálogo ya está commiteado, así que el paso 0 es opcional si solo quieres levantar la API: el
+script existe para re-sincronizar cuando cambie en TerraPlan (y verificar el `sha256`).
+
 
 OpenAPI: <http://localhost:8000/docs> · Health: <http://localhost:8000/api/v1/health>
 
@@ -135,8 +185,15 @@ cd api
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy app
-uv run pytest -q -m "not integration"
+uv run pytest -q -m "not integration"     # unit + golden, sin Docker
+uv run pytest -q -m integration           # Testcontainers (requiere Docker)
 ```
+
+El núcleo SPC (`app/spc/`) es la pieza con más red: `api/tests/golden/` fija valores esperados
+calculados de forma independiente (constantes `d₂/D₄/A₂`, cartas I-MR y X̄-R, reglas R1–R5,
+capacidad y regímenes de censurados). `api/tests/golden/README.md` documenta cómo se obtuvo cada
+número; un cambio de fórmula que mueva un decimal rompe un test, no una demo.
+
 
 Convenciones del proyecto: JSON en camelCase, fechas ISO-8601 en UTC, tablas en el esquema
 `aquametric`, límites de control ≠ límites normativos ≠ LOQ, y screening **referencial** (nunca
@@ -146,7 +203,7 @@ un dictamen de cumplimiento legal).
 
 La imagen se construye con el **contexto en la raíz del repositorio**, no en `api/`: necesita la
 copia sincronizada de `catalog/` o toda lectura del catálogo falla en runtime (hallazgo H1-A4,
-ADR-014).
+ADR-016).
 
 ```bash
 docker build -f api/Dockerfile -t aquametric-api:test .
@@ -161,5 +218,26 @@ motivo (nunca 500, que sería la señal de que el catálogo no entró en la imag
 
 ## Documentación
 
-- `docs/` — decisiones de arquitectura (ADR), `spc-methods.md`, `glossary.md`, design system.
-- Proyecto hermano: **TerraPlan** (NestJS), dueño del catálogo de parámetros, unidades y límites.
+| Documento | Para qué |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | Vista de conjunto: diagramas Mermaid, camino único de escritura, capas, tablas, pipeline AWS y despliegue |
+| [`docs/spc-methods.md`](docs/spc-methods.md) | Fórmulas de I-MR y X̄-R, reglas R1–R5, capacidad y política de censurados, en lenguaje claro |
+| [`docs/glossary.md`](docs/glossary.md) | Glosario (dominio químico, SPC, screening, infraestructura) para el químico y el analista |
+| [`docs/design-system.md`](docs/design-system.md) | Tokens, tipografía, componentes y reglas de gráficos de la UI |
+| [`docs/adr/`](docs/adr/) | 17 decisiones de arquitectura, de la estimación 3σ en Fase I (ADR-001) al contexto de build en Docker (ADR-016) |
+| [`.clinerules/`](.clinerules/) | Reglas del proyecto: contexto, estándares de código, flujos de trabajo, directivas de UI y limpieza |
+
+Números clave del núcleo SPC: `docs/spc-methods.md` §2–§6; los valores esperados de cada test
+golden y cómo se obtuvieron, en `api/tests/golden/README.md`.
+
+## Proyecto hermano
+
+**TerraPlan** (NestJS) es la fuente de verdad del catálogo de parámetros, unidades y límites, y el
+origen de los lotes de laboratorio. AquaMetric guarda una copia de solo lectura en `catalog/`
+sincronizada con `scripts/sync_catalog.py` (ADR-005); un cambio de catálogo se hace en TerraPlan y
+se sincroniza aquí, nunca al revés.
+
+## Licencia
+
+MIT.
+
