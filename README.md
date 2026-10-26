@@ -57,13 +57,11 @@ se pueda repetir. Carpeta: [`docs/captures/`](docs/captures/).
 |---|---|
 | Resumen (KPIs y alertas) - Sitios de Monitoreo | `docs/captures/AquaMetric1.gif` |
 | Series (tendencia + tabla de observaciones) - Control SPC (carta I-MR con reglas R1/R2) | `docs/captures/AquaMetric2.gif` |
-| Screening: Comparación con Límites Normativos - Pipeline con últimas ingestas y lecturas - Ajustes: Parámetros, dimensiones y rangos )(sólo lectura) | `docs/captures/AquaMetric3.gif` |
+| Screening: Comparación con Límites Normativos - Pipeline con últimas ingestas y lecturas - Ajustes: Parámetros, dimensiones y rangos (sólo lectura) | `docs/captures/AquaMetric3.gif` |
 
 ![Resumen - Sitios](docs/captures/01-resumen.gif)
 ![Series - Control SPC](docs/captures/02-control.gif)
 ![Screening - Pipeline - Ajustes](docs/captures/03-series.gif)
-
-> ⏳ Pendiente de captura (Fase F): los archivos se agregan en `docs/captures/` al desplegar la demo.
 
 
 ## Stack
