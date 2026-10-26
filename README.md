@@ -36,7 +36,7 @@ Nelson y capacidad de proceso. La UI es pública y de solo lectura.
 | **B** | Screening referencial puro + endpoints públicos de lectura (`catalog`, `screening`) | **cerrada** |
 | **C** | Simulador CLI determinista (sitios `SIM-…`) | **cerrada** (C-1) |
 | **D** | Núcleo SPC puro con tests golden; endpoints `spc/control-charts`, `spc/baseline` y `spc/rules` | **cerrada** (D-1 núcleo, D-2 endpoints) |
-| **E** | Frontend público de solo lectura (7 pantallas) sobre los endpoints reales | **cerrada** (E-1a…E-1e) |
+| **E** | Frontend público de solo lectura (7 pantallas) sobre los endpoints reales | **cerrada** (E-1a…E-1f) |
 | **F** | Despliegue (Render + Neon + Vercel), CI, capturas y demo viva | pendiente |
 | **G** | Pipeline AWS con SAM | pendiente (opcional, se recorta primero) |
 

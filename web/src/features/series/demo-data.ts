@@ -254,36 +254,3 @@ export function findDemoSeries(
     ) ?? null
   );
 }
-
-export interface DemoOverview {
-  observationsLast24h: number;
-  siteCount: number;
-  seriesWithAnomalies: number;
-  censoredCount: number;
-  lastObservationAt: Date | null;
-  totalObservations: number;
-}
-
-function buildOverview(): DemoOverview {
-  const all = DEMO_SERIES.flatMap((series) => series.observations);
-  const lastTimestamp = all.reduce((latest, observation) => {
-    const timestamp = new Date(observation.analyzedAt).getTime();
-    return timestamp > latest ? timestamp : latest;
-  }, 0);
-
-  const last24h = all.filter(
-    (observation) =>
-      new Date(observation.analyzedAt).getTime() >= Date.now() - 24 * MS_PER_HOUR,
-  );
-
-  return {
-    observationsLast24h: last24h.length,
-    siteCount: SITES.length,
-    seriesWithAnomalies: DEMO_SERIES.filter((series) => series.events.length > 0).length,
-    censoredCount: all.filter((observation) => observation.qualifier === "<").length,
-    lastObservationAt: lastTimestamp ? new Date(lastTimestamp) : null,
-    totalObservations: all.length,
-  };
-}
-
-export const DEMO_OVERVIEW: DemoOverview = buildOverview();

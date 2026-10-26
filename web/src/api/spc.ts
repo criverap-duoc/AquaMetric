@@ -15,7 +15,18 @@ export interface ControlChartParams {
   monitoringPoints?: number;
 }
 
-function chartQuery({ siteId, parameterCode, baselinePoints, monitoringPoints }: ControlChartParams) {
+/**
+ * Query string of the chart endpoints.
+ *
+ * Exported because the dashboard probes every (site, parameter) pair at once and must build the
+ * same URL the single-series hook builds, cache key included.
+ */
+export function chartSearch({
+  siteId,
+  parameterCode,
+  baselinePoints,
+  monitoringPoints,
+}: ControlChartParams) {
   const search = new URLSearchParams({ siteId, parameterCode });
 
   if (baselinePoints !== undefined) {
@@ -55,7 +66,7 @@ export function useControlChart(params: ControlChartParams) {
   return useQuery<ControlChartResponse>({
     queryKey: spcKeys.chart(params),
     queryFn: () =>
-      apiFetch<ControlChartResponse>(`/api/v1/spc/control-charts?${chartQuery(params)}`),
+      apiFetch<ControlChartResponse>(`/api/v1/spc/control-charts?${chartSearch(params)}`),
     enabled: Boolean(params.siteId) && Boolean(params.parameterCode),
   });
 }
@@ -64,7 +75,7 @@ export function useControlChart(params: ControlChartParams) {
 export function useRuleViolations(params: ControlChartParams) {
   return useQuery<RuleViolation[]>({
     queryKey: spcKeys.rules(params),
-    queryFn: () => apiFetch<RuleViolation[]>(`/api/v1/spc/rules?${chartQuery(params)}`),
+    queryFn: () => apiFetch<RuleViolation[]>(`/api/v1/spc/rules?${chartSearch(params)}`),
     enabled: Boolean(params.siteId) && Boolean(params.parameterCode),
   });
 }
