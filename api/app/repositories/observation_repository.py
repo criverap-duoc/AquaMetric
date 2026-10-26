@@ -1,16 +1,36 @@
-"""Persistence for `aquametric.observation`: insert-only, conflicts skipped (ADR-009)."""
+"""Persistence for `aquametric.observation`: insert-only, conflicts skipped (ADR-009).
+
+Writes go through the ingest service; the reads here answer the Series screen and its counters.
+Both share `_filters()`, so the rows of a page and the `total` printed next to them can never
+describe two different windows.
+"""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
 from typing import Any, cast
+from uuid import UUID
 
-from sqlalchemy import Table
+from sqlalchemy import ColumnElement, Table, func, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Observation
+from app.models import Observation, Site
 
 # Explicit constraint name: the natural key is the contract, not an implementation detail.
 NATURAL_KEY_CONSTRAINT = "uq_obs_natural_key"
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationAggregate:
+    """Counters of one window; the three statistics ignore censored rows (ADR-003)."""
+
+    count: int
+    censored_count: int
+    min_value: float | None
+    max_value: float | None
+    mean_value: float | None
 
 
 class ObservationRepository:
@@ -18,6 +38,76 @@ class ObservationRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def list_paginated(
+        self,
+        *,
+        site_id: UUID | None,
+        parameter_code: str | None,
+        from_dt: datetime | None,
+        to_dt: datetime | None,
+        page: int,
+        page_size: int,
+        order: str = "desc",
+    ) -> tuple[list[tuple[Observation, str]], int]:
+        """One page of observations with the code of their site, plus the total of the filter.
+
+        The join on `site` is what spares the screen a second request: the table and the charts
+        label rows by site code, and `aquametric.site` is small enough for an inner join to cost
+        nothing next to reading the observation itself (ADR-006 index).
+
+        `analyzed_at` carries a second sort key on purpose: a paginated list without a total order
+        can repeat or skip rows between pages when two observations share a timestamp.
+        """
+        filters = _filters(site_id, parameter_code, from_dt, to_dt)
+        total = await self._session.scalar(
+            select(func.count()).select_from(Observation).where(*filters)
+        )
+        ordering = (
+            Observation.analyzed_at.asc() if order == "asc" else Observation.analyzed_at.desc()
+        )
+        result = await self._session.execute(
+            select(Observation, Site.code)
+            .join(Site, Site.id == Observation.site_id)
+            .where(*filters)
+            .order_by(ordering, Observation.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return [(observation, site_code) for observation, site_code in result.all()], int(
+            total or 0
+        )
+
+    async def aggregate(
+        self,
+        *,
+        site_id: UUID | None,
+        parameter_code: str | None,
+        from_dt: datetime | None,
+        to_dt: datetime | None,
+    ) -> ObservationAggregate:
+        """Count, censored count, minimum, maximum and mean of one window in a single query.
+
+        The censored count travels as a `FILTER (WHERE value IS NULL)` aggregate, so the screen
+        learns «hay 3 resultados < LOQ» without downloading the rows to count them.
+        """
+        filters = _filters(site_id, parameter_code, from_dt, to_dt)
+        statement = select(
+            # `count` would collide with `tuple.count` when the Row is read by attribute.
+            func.count().label("rows_total"),
+            func.count().filter(Observation.value.is_(None)).label("censored_total"),
+            func.min(Observation.value).label("min_value"),
+            func.max(Observation.value).label("max_value"),
+            func.avg(Observation.value).label("mean_value"),
+        ).where(*filters)
+        row = (await self._session.execute(statement)).one()
+        return ObservationAggregate(
+            count=int(row.rows_total),
+            censored_count=int(row.censored_total),
+            min_value=_as_float(row.min_value),
+            max_value=_as_float(row.max_value),
+            mean_value=_as_float(row.mean_value),
+        )
 
     async def bulk_insert_ignore_conflicts(self, observations: Sequence[Observation]) -> int:
         """Insert in bulk, skipping rows whose natural key is already stored.
@@ -43,6 +133,34 @@ class ObservationRepository:
             result = await self._session.scalars(statement, rows)
             written += len(result.all())
         return written
+
+
+def _filters(
+    site_id: UUID | None,
+    parameter_code: str | None,
+    from_dt: datetime | None,
+    to_dt: datetime | None,
+) -> list[ColumnElement[bool]]:
+    """Conditions of the public filters; an absent filter contributes nothing.
+
+    Building the list once and sharing it between the page and the count is what keeps
+    `meta.total` honest: both queries always describe the same subset.
+    """
+    filters: list[ColumnElement[bool]] = []
+    if site_id is not None:
+        filters.append(Observation.site_id == site_id)
+    if parameter_code is not None:
+        filters.append(Observation.parameter_code == parameter_code)
+    if from_dt is not None:
+        filters.append(Observation.analyzed_at >= from_dt)
+    if to_dt is not None:
+        filters.append(Observation.analyzed_at <= to_dt)
+    return filters
+
+
+def _as_float(value: Decimal | None) -> float | None:
+    """`Numeric` columns arrive as `Decimal`; the contract publishes floats."""
+    return None if value is None else float(value)
 
 
 def _group_by_columns(observations: Sequence[Observation]) -> list[list[dict[str, Any]]]:

@@ -10,6 +10,7 @@ deviation stays `base_std` (`sigma_e = sigma * sqrt(1 - phi^2)`), plus the anoma
 `ScenarioConfig.events`.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 from math import sqrt
 from typing import Literal
@@ -26,10 +27,32 @@ type SeriesQualifier = Literal["<"] | None
 # One row of the series: timestamp, value, qualifier and quantification limit.
 type SeriesPoint = tuple[datetime, float | None, SeriesQualifier, float | None]
 
-# The demo is always Chilean central-southern river water; one coordinate would be a lie anyway.
-_SITE_LATITUDE = -33.45
-_SITE_LONGITUDE = -70.66
+# Every simulated site has its own coordinates: one shared point made four different rivers look
+# like a single place on the map. The values are rough positions inside the Maipo basin.
+SITE_COORDS: dict[str, tuple[float, float]] = {
+    "SIM-RIO-MAIPO-01": (-33.61, -70.58),
+    "SIM-RIO-MAPOCHO-01": (-33.42, -70.71),
+    "SIM-ESTERO-LAMPA-01": (-33.28, -70.89),
+    "SIM-ESTERO-PUANGUE-01": (-33.68, -71.02),
+}
+# Centre of the basin, used only for a `SIM-*` code nobody georeferenced yet.
+_FALLBACK_COORDINATES = (-33.45, -70.66)
 _SAMPLE_MATRIX = "water"
+
+logger = logging.getLogger(__name__)
+
+
+def site_coordinates(site_code: str) -> tuple[float, float]:
+    """Latitude and longitude of a simulated site, with a logged fallback.
+
+    The fallback is not silent: a fifth scenario that forgets its entry would otherwise inherit the
+    basin centre and look like a duplicate of the others on the map.
+    """
+    coordinates = SITE_COORDS.get(site_code)
+    if coordinates is None:
+        logger.warning("simulated site without coordinates", extra={"siteCode": site_code})
+        return _FALLBACK_COORDINATES
+    return coordinates
 
 
 def to_utc(value: datetime) -> datetime:
@@ -154,13 +177,14 @@ def generate_batch(config: ScenarioConfig, start_at: datetime, catalog: Catalog)
     if parameter is None:
         raise ValueError(f"El parámetro '{config.parameter_code}' no existe en el catálogo.")
 
+    latitude, longitude = site_coordinates(config.site_code)
     site = SiteIn(
         id=uuid5(NAMESPACE_DNS, config.site_code),
         code=config.site_code,
         name=f"Sitio simulado {config.site_code}",
         water_body_type="river",
-        latitude=_SITE_LATITUDE,
-        longitude=_SITE_LONGITUDE,
+        latitude=latitude,
+        longitude=longitude,
         is_active=True,
     )
     sample = SampleIn(

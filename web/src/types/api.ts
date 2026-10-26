@@ -193,8 +193,8 @@ export interface SpecLimitsRead {
  * `GET /api/v1/spc/control-charts` — `app/schemas/spc.py::ControlChartResponse`.
  *
  * The payload carries the limits, the signals and the baseline metadata, but **no series of
- * observations**: the plotted values come from `GET /observations`, which does not exist yet
- * (slice E-1c).
+ * observations**: the plotted values come from `GET /observations` (slice F-1a), which is what
+ * the Control screen reads with `order = asc`.
  */
 export interface ControlChartResponse {
   individuals: ControlLimits;
@@ -210,7 +210,7 @@ export interface ControlChartResponse {
   warnings: string[];
 }
 
-/* ----------------------------------------------- domain (endpoints TBD) --- */
+/* -------------------------------------------------------------- domain --- */
 
 export type QcFlag = "ok" | "suspect" | "failed";
 
@@ -290,12 +290,15 @@ export interface PipelineStatusResponse {
 }
 
 /**
- * Shape of `aquametric.observation`. `GET /observations` is not published yet (Fase F); the
- * Series page renders demo rows with this shape so the table and the charts share one type.
+ * `GET /api/v1/observations` — one stored measurement (`app/schemas/observation.py`).
+ *
+ * `siteCode` travels inside the row on purpose: the table and the charts label rows by code, and
+ * embedding it saves the screen a second request against `/sites`.
  */
-export interface Observation {
+export interface ObservationRead {
   id: string;
   siteId: string;
+  siteCode: string;
   sampleId: string | null;
   parameterCode: string;
   value: number | null;
@@ -306,4 +309,32 @@ export interface Observation {
   analyzedAt: string;
   qcFlag: QcFlag;
   source: ObservationSource;
+}
+
+/** Pagination envelope of the observation list, with the window that was applied. */
+export interface ObservationsMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  from: string | null;
+  to: string | null;
+}
+
+export interface ObservationsResponse {
+  data: ObservationRead[];
+  meta: ObservationsMeta;
+}
+
+/**
+ * `GET /api/v1/observations/aggregate` — counters of one window (`ObservationAggregateRead`).
+ *
+ * The three statistics use measured values only: a censored row has no number, so substituting
+ * `LOQ/2` would publish an invented measurement (ADR-003).
+ */
+export interface ObservationAggregate {
+  count: number;
+  censoredCount: number;
+  minValue: number | null;
+  maxValue: number | null;
+  meanValue: number | null;
 }

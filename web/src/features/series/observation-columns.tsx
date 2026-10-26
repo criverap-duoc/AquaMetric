@@ -1,7 +1,7 @@
 import type { DataTableColumnDef } from "@/components/domain/data-table-features";
 import { QcFlagBadge } from "@/components/domain/QcFlagBadge";
 import { formatDateTime, formatNumber } from "@/lib/format";
-import type { Observation, ObservationSource } from "@/types/api";
+import type { ObservationRead, ObservationSource } from "@/types/api";
 
 const SOURCE_LABELS: Record<ObservationSource, string> = {
   lab: "Laboratorio",
@@ -16,7 +16,7 @@ const SOURCE_LABELS: Record<ObservationSource, string> = {
 export function createObservationColumns(
   unitCode: string,
   decimals: number,
-): DataTableColumnDef<Observation>[] {
+): DataTableColumnDef<ObservationRead>[] {
   return [
     {
       accessorKey: "analyzedAt",

@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { useCatalogMeta, useParameters } from "@/api/catalog";
+import { useObservations } from "@/api/observations";
 import { useSites } from "@/api/sites";
 import { MIN_BASELINE_POINTS, useControlChart } from "@/api/spc";
 import { ControlChart } from "@/components/domain/ControlChart";
@@ -19,17 +20,22 @@ import {
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  BASELINE_POINT_OPTIONS,
-  CONTROL_SITES,
-  DEFAULT_BASELINE_POINTS,
-  DEFAULT_PARAMETER_CODE,
-  DEFAULT_SITE_CODE,
-  controlSeriesFor,
-  type ControlSiteOption,
-} from "@/features/control/demo-data";
-import { DEMO_PARAMETER_CODES, findDemoSeries } from "@/features/series/demo-data";
+import type { ControlObservation } from "@/features/control/types";
 import { ApiError } from "@/lib/api-client";
+
+/** Baseline sizes the analyst can choose: 20 is the Phase I minimum of ADR-001. */
+const BASELINE_POINT_OPTIONS = [20, 30, 40, 50] as const;
+
+const DEFAULT_BASELINE_POINTS = MIN_BASELINE_POINTS;
+const DEFAULT_PARAMETER_CODE = "PH";
+
+/**
+ * Rows after the baseline that `GET /spc/control-charts` scans by default.
+ *
+ * Mirrors `DEFAULT_MONITORING_POINTS` of `app/services/spc_service.py`: the chart has to plot the
+ * window the rules evaluated, otherwise a signal would point at a row nobody can see.
+ */
+const MONITORING_POINTS = 100;
 
 interface FilterPanelProps {
   siteCode: string;
@@ -147,16 +153,16 @@ export function ControlPage() {
 
   const sitesQuery = useSites({ page: 1, pageSize: 100 });
 
-  // Real sites from the API; the demo list keeps the chart working against an unseeded database.
-  const siteOptions = useMemo<ControlSiteOption[]>(() => {
-    const apiSites = sitesQuery.data?.data ?? [];
-
-    if (apiSites.length > 0) {
-      return apiSites.map((site) => ({ id: site.id, code: site.code, name: site.name }));
-    }
-
-    return CONTROL_SITES;
-  }, [sitesQuery.data]);
+  // Sites come from the API only: an unseeded database has to say «sin sitios», never invent them.
+  const siteOptions = useMemo(
+    () =>
+      (sitesQuery.data?.data ?? []).map((row) => ({
+        id: row.id,
+        code: row.code,
+        name: row.name,
+      })),
+    [sitesQuery.data],
+  );
 
   const siteSelectOptions = useMemo(
     () =>
@@ -168,18 +174,18 @@ export function ControlPage() {
   );
 
   const requestedSite = searchParams.get("site");
-  const site =
-    siteOptions.find((option) => option.code === requestedSite) ?? siteOptions[0] ?? null;
-  const siteCode = site?.code ?? DEFAULT_SITE_CODE;
+  const site = siteOptions.find((option) => option.code === requestedSite) ?? siteOptions[0] ?? null;
+  const siteCode = site?.code ?? "";
 
-  // Only the parameters the demo has a series for: an empty chart would be a dead end.
+  // Every catalog parameter is offered: a series without enough history answers «datos
+  // insuficientes» below, which is the honest state instead of a hidden option.
   const parameterOptions = useMemo(
     () =>
-      DEMO_PARAMETER_CODES.filter((code) => findDemoSeries(siteCode, code) !== null).map((code) => ({
-        code,
-        label: parametersByCode.get(code)?.nameEs ?? code,
+      (parametersQuery.data ?? []).map((parameter) => ({
+        code: parameter.code,
+        label: parameter.nameEs,
       })),
-    [siteCode, parametersByCode],
+    [parametersQuery.data],
   );
 
   const requestedParameter = searchParams.get("param") ?? DEFAULT_PARAMETER_CODE;
@@ -196,20 +202,7 @@ export function ControlPage() {
     const next = new URLSearchParams(searchParams);
 
     if (patch.site) {
-      const nextSite = patch.site;
-      next.set("site", nextSite);
-
-      // The new site may not have the parameter that is currently plotted: fall back to its first
-      // series, otherwise the selectors and the chart would disagree.
-      if (findDemoSeries(nextSite, parameterCode) === null) {
-        const fallback = DEMO_PARAMETER_CODES.find(
-          (code) => findDemoSeries(nextSite, code) !== null,
-        );
-
-        if (fallback) {
-          next.set("param", fallback);
-        }
-      }
+      next.set("site", patch.site);
     }
 
     if (patch.param) {
@@ -231,20 +224,52 @@ export function ControlPage() {
     baselinePoints,
   });
 
-  const series = controlSeriesFor(siteCode, parameterCode);
+  // The window the API scanned: the oldest `baselinePoints` observations plus the monitored rows.
+  // Requesting exactly that many rows in ascending order reproduces the two slices the SPC service
+  // builds, so the plotted points are the ones the rules evaluated.
+  const observationsQuery = useObservations({
+    siteId: site?.id,
+    parameterCode,
+    order: "asc",
+    page: 1,
+    pageSize: baselinePoints + MONITORING_POINTS,
+  });
+
+  const series = useMemo<ControlObservation[] | null>(() => {
+    const rows = observationsQuery.data?.data ?? [];
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    return rows.map((row, index) => ({
+      index,
+      analyzedAt: row.analyzedAt,
+      value: row.value,
+      qualifier: row.qualifier,
+      loq: row.loq,
+      qcFlag: row.qcFlag,
+    }));
+  }, [observationsQuery.data]);
+
   const parameter = parametersByCode.get(parameterCode);
   const parameterName = parameter?.nameEs ?? parameterCode;
-  const unitCode = series?.unitCode ?? parameter?.canonicalUnitCode ?? "—";
-  const decimals = parameter?.decimals ?? series?.decimals ?? 2;
+  const unitCode = parameter?.canonicalUnitCode ?? "—";
+  const decimals = parameter?.decimals ?? 2;
   const catalogVersion = metaQuery.data?.version ?? "—";
 
   const problem = chartQuery.error instanceof ApiError ? chartQuery.error.problem : null;
   // A short series is not a failure: the analyst needs to know how many points are missing.
   const isInsufficientData = problem?.code === "INSUFFICIENT_DATA";
 
+  const isPending = chartQuery.isPending || observationsQuery.isPending || sitesQuery.isPending;
+  const error = sitesQuery.error ?? parametersQuery.error ?? chartQuery.error ?? observationsQuery.error;
+
   const handleRetry = () => {
     void chartQuery.refetch();
+    void observationsQuery.refetch();
     void parametersQuery.refetch();
+    void sitesQuery.refetch();
   };
 
   return (
@@ -309,7 +334,16 @@ export function ControlPage() {
         </p>
       </div>
 
-      {chartQuery.isPending ? <ChartSkeleton /> : null}
+      {!error && isPending ? <ChartSkeleton /> : null}
+
+      {!error && !isPending && siteOptions.length === 0 ? (
+        <Card className="items-center p-8 text-center">
+          <p className="text-sm font-medium">Todavía no hay sitios registrados</p>
+          <p className="max-w-md text-xs text-muted-foreground">
+            Carga un lote con el simulador y la carta de control aparecerá aquí.
+          </p>
+        </Card>
+      ) : null}
 
       {isInsufficientData ? (
         <div className="flex flex-col items-start gap-2 rounded-md bg-info-soft p-4 text-info-soft-foreground">
@@ -330,25 +364,13 @@ export function ControlPage() {
         </div>
       ) : null}
 
-      {chartQuery.isError && !isInsufficientData ? (
-        <ErrorState error={chartQuery.error} onRetry={handleRetry} />
-      ) : null}
-
-      {chartQuery.data && !series ? (
-        <Card className="items-center p-8 text-center">
-          <p className="text-sm font-medium">Sin serie para esta combinación</p>
-          <p className="max-w-md text-xs text-muted-foreground">
-            La carta necesita los valores observados y esta combinación de sitio y parámetro aún no
-            tiene datos en la demostración. Elige otro sitio o parámetro.
-          </p>
-        </Card>
-      ) : null}
+      {error && !isInsufficientData ? <ErrorState error={error} onRetry={handleRetry} /> : null}
 
       {chartQuery.data && series ? (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
           <div className="xl:col-span-8">
             <ControlChart
-              observations={series.observations}
+              observations={series}
               individuals={chartQuery.data.individuals}
               movingRange={chartQuery.data.movingRange}
               specLimits={

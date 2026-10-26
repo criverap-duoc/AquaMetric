@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 
 from fastapi import Depends
 from pydantic import Field, field_validator
@@ -10,6 +10,11 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # api/app/core/config.py -> repository root, so the shared catalog resolves from any cwd.
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# Page-size ceiling of `GET /observations`, kept as a constant because it bounds a Query
+# parameter at import time. The Series screen reads up to 500 rows in one request (30 days of a
+# six-hourly series) and the control chart asks for its whole Phase I window; 1000 covers both.
+OBSERVATIONS_PAGE_SIZE_MAX: Final = 1000
 
 
 class Settings(BaseSettings):

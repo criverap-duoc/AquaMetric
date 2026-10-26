@@ -37,7 +37,7 @@ Nelson y capacidad de proceso. La UI es pública y de solo lectura.
 | **C** | Simulador CLI determinista (sitios `SIM-…`) | **cerrada** (C-1) |
 | **D** | Núcleo SPC puro con tests golden; endpoints `spc/control-charts`, `spc/baseline` y `spc/rules` | **cerrada** (D-1 núcleo, D-2 endpoints) |
 | **E** | Frontend público de solo lectura (7 pantallas) sobre los endpoints reales | **cerrada** (E-1a…E-1f) |
-| **F** | Despliegue (Render + Neon + Vercel), CI, capturas y demo viva | pendiente |
+| **F** | Despliegue (Render + Neon + Vercel), CI, capturas y demo viva | **en curso** (F-1a: `GET /observations` y las pantallas de Series y Control sobre datos reales) |
 | **G** | Pipeline AWS con SAM | pendiente (opcional, se recorta primero) |
 
 ## Capturas
@@ -178,6 +178,8 @@ python ../scripts/sync_catalog.py --from-path <ruta-a-terraplan>/catalog   # ver
 | POST | `/api/v1/screening/evaluate` | Público | Screening **referencial** de una observación contra un límite: `flag`, `reason`, `limitApplied`, `warnings[]` |
 | GET | `/api/v1/screening/limits` | Público | Límites que el selector puede citar (`parameterCode` + `regulation` + contexto/área) |
 | GET | `/api/v1/sites` | Público | Sitios paginados por `code` (`page`, `pageSize`, `isActive`): entregan el `siteId` que esperan los endpoints SPC |
+| GET | `/api/v1/observations` | Público | Observaciones paginadas (`siteId`, `parameterCode`, `from`, `to`, `order`), con `siteCode` en cada fila; censuradas como `value=null` + `qualifier="<"` + `loq` |
+| GET | `/api/v1/observations/aggregate` | Público | Conteo, censuradas, mínimo, máximo y media de una ventana en una sola consulta |
 | GET | `/api/v1/pipeline/status` | Público | Últimos lotes de `ingest_idempotency` y última lectura por sitio; `awsDeployed=false` cuando el pipeline AWS no existe (ADR-004) |
 | GET | `/api/v1/spc/control-charts` | Público | Carta I-MR de una serie (`siteId`, `parameterCode`, ventana): límites de control, puntos y violaciones `R1`–`R5` |
 | GET | `/api/v1/spc/baseline` | Público | Línea base Fase I persistida de una serie (los mismos números para cualquier cliente) |

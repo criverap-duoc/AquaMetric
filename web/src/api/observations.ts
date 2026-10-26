@@ -1,16 +1,125 @@
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 
 import { chartSearch, spcKeys } from "@/api/spc";
-import { ApiError, apiFetch } from "@/lib/api-client";
-import type { ControlChartResponse, RuleViolation } from "@/types/api";
+import { ApiError, apiFetch, toListEnvelope, toObject } from "@/lib/api-client";
+import type {
+  ControlChartResponse,
+  ObservationAggregate,
+  ObservationRead,
+  ObservationsMeta,
+  ObservationsResponse,
+  RuleViolation,
+} from "@/types/api";
+
+const OBSERVATIONS_PATH = "/api/v1/observations";
+
+/**
+ * Filters of `GET /observations`.
+ *
+ * `order` exists because the two screens want the same rows in opposite directions: the table
+ * shows the newest first, and the control chart needs the chronological window that
+ * `GET /spc/control-charts` actually scanned.
+ */
+export interface ObservationsParams {
+  siteId?: string;
+  parameterCode?: string;
+  /** ISO-8601 instant, inclusive. */
+  from?: string;
+  /** ISO-8601 instant, inclusive. */
+  to?: string;
+  page?: number;
+  pageSize?: number;
+  order?: "asc" | "desc";
+}
+
+export const observationKeys = {
+  all: ["observations"] as const,
+  list: (params: ObservationsParams) => ["observations", "list", params] as const,
+  aggregate: (params: ObservationsParams) => ["observations", "aggregate", params] as const,
+};
+
+function observationsSearch({
+  siteId,
+  parameterCode,
+  from,
+  to,
+  page = 1,
+  pageSize = 100,
+  order,
+}: ObservationsParams): string {
+  const search = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+
+  if (siteId) {
+    search.set("siteId", siteId);
+  }
+
+  if (parameterCode) {
+    search.set("parameterCode", parameterCode);
+  }
+
+  if (from) {
+    search.set("from", from);
+  }
+
+  if (to) {
+    search.set("to", to);
+  }
+
+  if (order) {
+    search.set("order", order);
+  }
+
+  return search.toString();
+}
+
+/**
+ * One page of stored observations, with the site code embedded in every row.
+ *
+ * Disabled until a parameter is chosen: the endpoint answers every parameter of every site at
+ * once, which is far more than a screen showing one series needs.
+ */
+export function useObservations(params: ObservationsParams = {}) {
+  return useQuery<ObservationsResponse>({
+    queryKey: observationKeys.list(params),
+    queryFn: async () => {
+      const search = observationsSearch(params);
+      const payload = await apiFetch<unknown>(`${OBSERVATIONS_PATH}?${search}`);
+
+      return toListEnvelope<ObservationRead, ObservationsMeta>(payload, OBSERVATIONS_PATH);
+    },
+    enabled: Boolean(params.parameterCode ?? params.siteId),
+    // New rows only arrive with a batch; a minute keeps the screen responsive without polling.
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Counters of the same window in a single query: «n», the mean and the range.
+ *
+ * The Series screen prints `n` next to the charts; asking the list for it would mean downloading
+ * 1400 rows to count them.
+ */
+export function useObservationsAggregate(params: ObservationsParams = {}) {
+  return useQuery<ObservationAggregate>({
+    queryKey: observationKeys.aggregate(params),
+    queryFn: async () => {
+      const search = observationsSearch({ ...params, page: undefined, pageSize: undefined });
+      const payload = await apiFetch<unknown>(`${OBSERVATIONS_PATH}/aggregate?${search}`);
+
+      return toObject<ObservationAggregate>(payload, `${OBSERVATIONS_PATH}/aggregate`);
+    },
+    enabled: Boolean(params.parameterCode ?? params.siteId),
+    staleTime: 60_000,
+  });
+}
 
 /**
  * Overview of the stored series, composed from endpoints that already exist.
  *
- * `GET /observations` is not published yet, so the dashboard cannot ask «how many observations
- * are there?» directly. What it can ask is for the I-MR chart of every (site, parameter) pair:
- * the response carries the limits, the baseline size and the signals of the monitoring window,
- * which is what the summary needs. Aggregating in the client keeps this slice off the backend.
+ * What the dashboard needs is «how many series, and which ones moved». What it can ask is the
+ * I-MR chart of every (site, parameter) pair: the response carries the limits, the baseline size
+ * and the signals of the monitoring window. Aggregating in the client keeps this slice off the
+ * backend.
  */
 
 /** A pair the API can hold a series for: the key of one control chart. */

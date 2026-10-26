@@ -49,6 +49,10 @@ class PipelineRepository:
         `row_number() OVER (PARTITION BY site_id ORDER BY analyzed_at DESC)` avoids the
         `DISTINCT ON` extension (deprecated in the ORM) and behaves the same: the outer query
         keeps `position = 1` and sorts by site code so the screen shows a stable list.
+
+        Rows dated in the future are excluded (`analyzed_at <= now()`): a seed generated with a
+        start instant ahead of the clock is not «la última lectura», and printing it would tell the
+        reader that the sensor reported tomorrow.
         """
         ranked = (
             select(
@@ -66,6 +70,7 @@ class PipelineRepository:
                 .label("position"),
             )
             .join(Site, Site.id == Observation.site_id)
+            .where(Observation.analyzed_at <= func.now())
             .subquery()
         )
         result = await self._session.execute(

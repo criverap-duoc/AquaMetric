@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { useCatalogMeta, useParameters } from "@/api/catalog";
+import { useObservations, useObservationsAggregate } from "@/api/observations";
 import { useSites } from "@/api/sites";
 import { MIN_BASELINE_POINTS } from "@/api/spc";
 import { DataTable } from "@/components/domain/DataTable";
@@ -21,13 +22,8 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { createObservationColumns } from "@/features/series/observation-columns";
-import {
-  DEMO_PARAMETER_CODES,
-  DEMO_SITES,
-  findDemoSeries,
-} from "@/features/series/demo-data";
-import { formatDateTime } from "@/lib/format";
-import type { Observation } from "@/types/api";
+import { formatDateTime, formatNumber } from "@/lib/format";
+import type { ObservationAggregate, ObservationRead } from "@/types/api";
 
 /** Range presets of the global filter bar; the value is the width in days. */
 const RANGE_PRESETS = {
@@ -41,6 +37,14 @@ type RangePreset = keyof typeof RANGE_PRESETS;
 const DEFAULT_RANGE: RangePreset = "30d";
 
 const MS_PER_DAY = 86_400_000;
+
+/** Observations the charts load in one request; 30 days of a six-hourly series is 121 points. */
+const CHART_POINTS = 500;
+
+/** Rows per page the table can ask the server for. */
+const TABLE_PAGE_SIZES = [25, 50, 100, 500] as const;
+
+const DEFAULT_TABLE_PAGE_SIZE = 50;
 
 function isRangePreset(value: string | null): value is RangePreset {
   return value !== null && value in RANGE_PRESETS;
@@ -140,6 +144,35 @@ function ChartSkeleton() {
   );
 }
 
+/** Mean of the window, or «—» when every value in it was censored (`< LOQ`). */
+function formatWindowMean(
+  summary: ObservationAggregate | undefined,
+  decimals: number,
+  unitCode: string,
+): string {
+  if (!summary || summary.meanValue === null) {
+    return "—";
+  }
+
+  return `${formatNumber(summary.meanValue, decimals)} ${unitCode}`;
+}
+
+/** «mín–máx unidad», or «—» for the same reason as the mean. */
+function formatWindowRange(
+  summary: ObservationAggregate | undefined,
+  decimals: number,
+  unitCode: string,
+): string {
+  if (!summary || summary.minValue === null || summary.maxValue === null) {
+    return "—";
+  }
+
+  const minimum = formatNumber(summary.minValue, decimals);
+  const maximum = formatNumber(summary.maxValue, decimals);
+
+  return `${minimum}–${maximum} ${unitCode}`;
+}
+
 
 export function SeriesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -155,30 +188,53 @@ export function SeriesPage() {
 
   const sitesQuery = useSites({ page: 1, pageSize: 100 });
 
-  // Real sites come from the API; the demo list is only a fallback for an unseeded database.
-  const siteOptions = useMemo(() => {
-    const apiSites = sitesQuery.data?.data ?? [];
+  // Sites come from the API only: an unseeded database has to say «sin sitios», never invent them.
+  // The uuid travels with the code because the SPC endpoints key their series by `siteId`.
+  const siteOptions = useMemo(
+    () =>
+      (sitesQuery.data?.data ?? []).map((row) => ({
+        code: row.code,
+        id: row.id,
+        label: `${row.code} · ${row.name}`,
+      })),
+    [sitesQuery.data],
+  );
 
-    if (apiSites.length > 0) {
-      return apiSites.map((site) => ({ code: site.code, label: `${site.code} · ${site.name}` }));
-    }
-
-    return DEMO_SITES.map((site) => ({ code: site.code, label: `${site.code} · ${site.name}` }));
-  }, [sitesQuery.data]);
-
-  const parameterOptions = DEMO_PARAMETER_CODES.map((code) => ({
-    code,
-    label: parametersByCode.get(code)?.nameEs ?? code,
-  }));
+  // Every catalog parameter is offered, not only the ones with data: «este sitio no mide TURB» is
+  // information the analyst needs, and the empty state says it without pretending an error.
+  const parameterOptions = useMemo(
+    () =>
+      (parametersQuery.data ?? []).map((parameter) => ({
+        code: parameter.code,
+        label: parameter.nameEs,
+      })),
+    [parametersQuery.data],
+  );
 
   const requestedSite = searchParams.get("site");
-  const siteCode =
-    siteOptions.find((option) => option.code === requestedSite)?.code ??
-    siteOptions[0]?.code ??
-    DEMO_SITES[0].code;
-  const parameterCode = searchParams.get("param") ?? DEMO_PARAMETER_CODES[0];
+  const site = siteOptions.find((option) => option.code === requestedSite) ?? siteOptions[0] ?? null;
+  const siteCode = site?.code ?? "";
+  const parameterCode =
+    parameterOptions.find((option) => option.code === searchParams.get("param"))?.code ??
+    parameterOptions[0]?.code ??
+    "";
   const rawRange = searchParams.get("range");
   const range: RangePreset = isRangePreset(rawRange) ? rawRange : DEFAULT_RANGE;
+
+  const requestedPageSize = Number(searchParams.get("pageSize"));
+  const tablePage = Math.max(1, Number(searchParams.get("page") ?? 1) || 1);
+  const tablePageSize = (TABLE_PAGE_SIZES as readonly number[]).includes(requestedPageSize)
+    ? requestedPageSize
+    : DEFAULT_TABLE_PAGE_SIZE;
+
+  // The window ends «now», so a seed generated with a future start instant is not plotted as if
+  // the sensor had reported tomorrow (`GET /pipeline/status` applies the same rule).
+  const window = useMemo(() => {
+    const to = new Date();
+    const from = new Date(to.getTime() - RANGE_PRESETS[range].days * MS_PER_DAY);
+
+    return { from: from.toISOString(), to: to.toISOString() };
+  }, [range]);
 
   // Filters live in the URL so a regulator can share the exact view (04 §4).
   const updateFilters = (patch: { site?: string; param?: string; range?: RangePreset }) => {
@@ -196,42 +252,71 @@ export function SeriesPage() {
       next.set("range", patch.range);
     }
 
+    // Another filter is another series: page 2 of the previous one means nothing.
+    if (patch.site || patch.param || patch.range) {
+      next.delete("page");
+    }
+
     setSearchParams(next, { replace: true });
   };
 
-  const series = findDemoSeries(siteCode, parameterCode);
+  /** Server pagination: the table asks for a page, the footer prints the totals of the API. */
+  const updatePage = (page: number, pageSize: number) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("page", String(page));
+    next.set("pageSize", String(pageSize));
+    setSearchParams(next, { replace: true });
+  };
+
+  // Two reads of the same window: the charts want all of it, the table one page. TanStack Query
+  // dedupes them when the analyst leaves the table at 500 rows on page 1.
+  const chartQuery = useObservations({
+    siteId: site?.id,
+    parameterCode,
+    from: window.from,
+    to: window.to,
+    page: 1,
+    pageSize: CHART_POINTS,
+    order: "desc",
+  });
+  const tableQuery = useObservations({
+    siteId: site?.id,
+    parameterCode,
+    from: window.from,
+    to: window.to,
+    page: tablePage,
+    pageSize: tablePageSize,
+    order: "desc",
+  });
+  const aggregateQuery = useObservationsAggregate({
+    siteId: site?.id,
+    parameterCode,
+    from: window.from,
+    to: window.to,
+  });
+
   const parameter = parametersByCode.get(parameterCode);
 
-  // The demo series are anchored to the instant `demo-data.ts` was built, so the last reading is
-  // the reference for "last 24 h". Using it instead of `Date.now()` keeps render pure.
-  const referenceTime = useMemo(() => {
-    const latest = series?.observations.at(-1);
-    return latest ? new Date(latest.analyzedAt).getTime() : 0;
-  }, [series]);
-
-  const visibleObservations = useMemo<Observation[]>(() => {
-    if (!series || referenceTime === 0) {
-      return [];
-    }
-
-    const cutoff = referenceTime - RANGE_PRESETS[range].days * MS_PER_DAY;
-
-    return series.observations.filter(
-      (observation) => new Date(observation.analyzedAt).getTime() >= cutoff,
-    );
-  }, [series, range, referenceTime]);
+  // The endpoint answers newest first (the table order); the charts need the series chronological.
+  const chartObservations = useMemo<ObservationRead[]>(
+    () => [...(chartQuery.data?.data ?? [])].reverse(),
+    [chartQuery.data],
+  );
+  const tableObservations = tableQuery.data?.data ?? [];
+  const totalObservations = tableQuery.data?.meta.total ?? 0;
+  const summary = aggregateQuery.data;
 
   const trendPoints = useMemo<TrendPoint[]>(
     () =>
-      visibleObservations.map((observation) => ({
+      chartObservations.map((observation) => ({
         timestamp: new Date(observation.analyzedAt),
         value: observation.value,
       })),
-    [visibleObservations],
+    [chartObservations],
   );
 
-  const unitCode = series?.unitCode ?? "—";
-  const decimals = parameter?.decimals ?? series?.decimals ?? 2;
+  const unitCode = parameter?.canonicalUnitCode ?? chartObservations[0]?.unitCode ?? "—";
+  const decimals = parameter?.decimals ?? 2;
   const parameterName = parameter?.nameEs ?? parameterCode;
 
   const observationColumns = useMemo(
@@ -240,11 +325,18 @@ export function SeriesPage() {
   );
 
   const catalogVersion = metaQuery.data?.version ?? "—";
-  const source = `${siteCode} · ${parameterName} · datos demo del simulador · catálogo v${catalogVersion} · actualizado ${formatDateTime(new Date())}`;
+  const updatedAt = chartQuery.dataUpdatedAt > 0 ? new Date(chartQuery.dataUpdatedAt) : new Date();
+  const source = `${siteCode} · ${parameterName} · GET /observations · catálogo v${catalogVersion} · actualizado ${formatDateTime(updatedAt)}`;
+
+  const isPending = parametersQuery.isPending || sitesQuery.isPending || chartQuery.isPending;
+  const error = parametersQuery.error ?? sitesQuery.error ?? chartQuery.error;
 
   const handleRetry = () => {
     void parametersQuery.refetch();
-    void metaQuery.refetch();
+    void sitesQuery.refetch();
+    void chartQuery.refetch();
+    void tableQuery.refetch();
+    void aggregateQuery.refetch();
   };
 
   return (
@@ -302,35 +394,57 @@ export function SeriesPage() {
       <div className="flex items-start gap-2 rounded-md bg-info-soft p-3 text-info-soft-foreground">
         <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
         <p className="text-xs">
-          Datos de demostración del simulador determinista (seed 42). Las series reales se leerán de{" "}
-          <span className="font-mono">GET /api/v1/observations</span> cuando exista ese endpoint.
+          Serie leída de <span className="font-mono">GET /api/v1/observations</span> sobre una
+          ventana que termina ahora. Los resultados censurados (<span className="font-mono">&lt; LOQ</span>
+          ) se muestran con su operador y nunca se estiman.
         </p>
       </div>
 
-      {parametersQuery.isError ? (
-        <ErrorState error={parametersQuery.error} onRetry={handleRetry} />
+      {error ? <ErrorState error={error} onRetry={handleRetry} /> : null}
+
+      {!error && isPending ? <ChartSkeleton /> : null}
+
+      {!error && !isPending && siteOptions.length === 0 ? (
+        <Card className="items-center p-8 text-center">
+          <p className="text-sm font-medium">Todavía no hay sitios registrados</p>
+          <p className="max-w-md text-xs text-muted-foreground">
+            Carga un lote con el simulador y la serie aparecerá aquí.
+          </p>
+        </Card>
       ) : null}
 
-      {parametersQuery.isPending ? <ChartSkeleton /> : null}
-      {!parametersQuery.isPending && !parametersQuery.isError ? (
-        visibleObservations.length === 0 ? (
-          <Card className="items-center p-8 text-center">
-            <p className="text-sm font-medium">Sin observaciones en este rango</p>
-            <p className="max-w-md text-xs text-muted-foreground">
-              Amplía el rango de fechas o elige otro sitio o parámetro.
+      {!error && !isPending && siteOptions.length > 0 && totalObservations === 0 ? (
+        <Card className="items-center p-8 text-center">
+          <p className="text-sm font-medium">Sin observaciones en este rango</p>
+          <p className="max-w-md text-xs text-muted-foreground">
+            Amplía el rango de fechas o elige otro sitio o parámetro.
+          </p>
+        </Card>
+      ) : null}
+
+      {!error && !isPending && siteOptions.length > 0 && totalObservations > 0 ? (
+        <>
+          {summary ? (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-mono tabular-nums">{formatNumber(summary.count, 0)}</span>{" "}
+              observaciones en el rango
+              {summary.censoredCount > 0
+                ? ` · ${formatNumber(summary.censoredCount, 0)} censuradas (< LOQ)`
+                : ""}{" "}
+              · media {formatWindowMean(summary, decimals, unitCode)} · rango{" "}
+              {formatWindowRange(summary, decimals, unitCode)}
             </p>
-          </Card>
-        ) : (
-          <>
-            {visibleObservations.length < MIN_BASELINE_POINTS ? (
-              <div className="flex items-start gap-2 rounded-md bg-info-soft p-3 text-info-soft-foreground">
-                <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-                <p className="text-xs">
-                  Se requieren al menos {MIN_BASELINE_POINTS} observaciones para estimar la línea
-                  base; este rango tiene {visibleObservations.length}. Amplía el rango de fechas.
-                </p>
-              </div>
-            ) : null}
+          ) : null}
+
+          {summary && summary.count < MIN_BASELINE_POINTS ? (
+            <div className="flex items-start gap-2 rounded-md bg-info-soft p-3 text-info-soft-foreground">
+              <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+              <p className="text-xs">
+                Se requieren al menos {MIN_BASELINE_POINTS} observaciones para estimar la línea
+                base; este rango tiene {summary.count}. Amplía el rango de fechas.
+              </p>
+            </div>
+          ) : null}
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-6 xl:grid-cols-12">
               <Card className="gap-2 p-4 pb-2 md:col-span-6 xl:col-span-8">
@@ -340,7 +454,10 @@ export function SeriesPage() {
                   </CardTitle>
                   <CardDescription className="text-xs">
                     {parameterName} · {RANGE_PRESETS[range].label} · n ={" "}
-                    {visibleObservations.length}
+                    {formatNumber(chartObservations.length, 0)}
+                    {summary && summary.count > chartObservations.length
+                      ? ` (los ${CHART_POINTS} más recientes de ${formatNumber(summary.count, 0)})`
+                      : ""}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -387,15 +504,23 @@ export function SeriesPage() {
                 <CardContent className="p-0">
                   <DataTable
                     columns={observationColumns}
-                    data={visibleObservations}
+                    data={tableObservations}
+                    isLoading={tableQuery.isPending}
                     caption={`Observaciones de ${parameterName} en ${siteCode}`}
                     emptyMessage="Sin observaciones en este rango."
+                    serverPagination={{
+                      page: tablePage,
+                      pageSize: tablePageSize,
+                      total: totalObservations,
+                      pageSizeOptions: TABLE_PAGE_SIZES,
+                      onPageChange: (page) => updatePage(page, tablePageSize),
+                      onPageSizeChange: (pageSize) => updatePage(1, pageSize),
+                    }}
                   />
                 </CardContent>
               </Card>
             </div>
-          </>
-        )
+        </>
       ) : null}
     </section>
   );

@@ -18,7 +18,7 @@ import pytest
 from app.catalog.loader import load_catalog
 from app.core.config import REPO_ROOT
 from app.simulator import Event, EventType, ScenarioConfig, generate_batch, generate_series
-from app.simulator.generator import SeriesPoint
+from app.simulator.generator import SITE_COORDS, SeriesPoint
 
 START_AT = datetime(2026, 10, 1, tzinfo=UTC)
 BASE_MEAN = 7.5
@@ -227,3 +227,22 @@ def test_observation_ids_are_unique_across_parameters_and_windows() -> None:
         observation.id
         for observation in generate_batch(scenario(days=1), START_AT, catalog).observations
     }
+
+
+def test_sites_have_distinct_coords() -> None:
+    """Each simulated site carries its own coordinates: four rivers are not one point on a map.
+
+    The assertion runs on the batch (what the ingest stores), not on the dict, so hardcoding one
+    pair for every site again fails here instead of shipping a map with four identical pins.
+    """
+    catalog = load_catalog(REPO_ROOT / "catalog")
+    coordinates: list[tuple[float | None, float | None]] = []
+
+    for site_code in SITE_COORDS:
+        batch = generate_batch(replace(scenario(days=1), site_code=site_code), START_AT, catalog)
+        coordinates.append((batch.site.latitude, batch.site.longitude))
+
+    assert all(
+        latitude is not None and longitude is not None for latitude, longitude in coordinates
+    )
+    assert len(set(coordinates)) == len(SITE_COORDS)

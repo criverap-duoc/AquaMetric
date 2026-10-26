@@ -32,7 +32,35 @@ import {
 
 const PAGE_SIZES = [25, 50, 100] as const;
 
+/**
+ * Row ceiling of the internal paginator when the server paginates.
+ *
+ * The table keeps its own pagination state (sorting lives in the row model), so the size has to
+ * be large enough to hold a whole server page in a single internal page; otherwise the last rows
+ * of the response would be silently hidden. It matches the largest page size the API accepts.
+ */
+const SERVER_PAGE_SIZE_CAP = 1000;
+
 const SKELETON_ROWS = 10;
+
+/**
+ * Server-side pagination: the table renders exactly the rows it received and the footer talks to
+ * the caller instead of slicing `data`.
+ *
+ * Necessary because `meta.total` counts every row that matches the filter, not the loaded page:
+ * a client-side footer would print «mostrando 1–50 de 50» over a series of 1400 observations.
+ * Sorting still applies to the loaded page only, which is the usual trade-off of a paginated API.
+ */
+export interface ServerPagination {
+  /** Page that is loaded, from 1. */
+  page: number;
+  pageSize: number;
+  /** Rows that match the filter on the server, across every page. */
+  total: number;
+  pageSizeOptions?: readonly number[];
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+}
 
 export interface DataTableProps<TData extends RowData> {
   columns: DataTableColumnDef<TData>[];
@@ -43,6 +71,8 @@ export interface DataTableProps<TData extends RowData> {
   isLoading?: boolean;
   /** Accessible name of the table (`<caption>`): what the table lists. */
   caption: string;
+  /** Set it to hand the pagination to the API instead of slicing `data` in the browser. */
+  serverPagination?: ServerPagination;
 }
 
 function ariaSortValue(sorted: false | "asc" | "desc") {
@@ -81,12 +111,19 @@ export function DataTable<TData extends RowData>({
   emptyMessage = "Sin datos para mostrar.",
   isLoading = false,
   caption,
+  serverPagination,
 }: DataTableProps<TData>) {
+  const isServerPaginated = serverPagination !== undefined;
   const table = useTable({
     features: DATA_TABLE_FEATURES,
     columns,
     data,
-    initialState: { pagination: { pageIndex: 0, pageSize } },
+    initialState: {
+      pagination: {
+        pageIndex: 0,
+        pageSize: isServerPaginated ? SERVER_PAGE_SIZE_CAP : pageSize,
+      },
+    },
   });
 
   if (isLoading) {
@@ -114,9 +151,17 @@ export function DataTable<TData extends RowData>({
   }
 
   const { pageIndex, pageSize: currentPageSize } = table.state.pagination;
-  const total = data.length;
-  const firstRow = pageIndex * currentPageSize + 1;
-  const lastRow = Math.min(total, firstRow + currentPageSize - 1);
+  // With server pagination the footer describes the API page, not the rows in memory.
+  const total = serverPagination?.total ?? data.length;
+  const pageNumber = serverPagination?.page ?? pageIndex + 1;
+  const rowsPerPage = serverPagination?.pageSize ?? currentPageSize;
+  const firstRow = total === 0 ? 0 : (pageNumber - 1) * rowsPerPage + 1;
+  const lastRow = Math.min(total, pageNumber * rowsPerPage);
+  const pageSizeOptions = serverPagination?.pageSizeOptions ?? PAGE_SIZES;
+  const canGoBack = serverPagination ? pageNumber > 1 : table.getCanPreviousPage();
+  const canGoForward = serverPagination
+    ? pageNumber * rowsPerPage < total
+    : table.getCanNextPage();
 
   return (
     <div className="flex flex-col gap-2">
@@ -180,14 +225,23 @@ export function DataTable<TData extends RowData>({
 
         <div className="flex items-center gap-2">
           <Select
-            value={String(currentPageSize)}
-            onValueChange={(value) => table.setPageSize(Number(value))}
+            value={String(rowsPerPage)}
+            onValueChange={(value) => {
+              const nextSize = Number(value);
+
+              if (serverPagination) {
+                serverPagination.onPageSizeChange(nextSize);
+                return;
+              }
+
+              table.setPageSize(nextSize);
+            }}
           >
             <SelectTrigger size="sm" aria-label="Filas por página" className="w-28">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PAGE_SIZES.map((size) => (
+              {pageSizeOptions.map((size) => (
                 <SelectItem key={size} value={String(size)}>
                   {size} filas
                 </SelectItem>
@@ -200,8 +254,15 @@ export function DataTable<TData extends RowData>({
             variant="outline"
             size="icon-sm"
             aria-label="Página anterior"
-            disabled={!table.getCanPreviousPage()}
-            onClick={() => table.previousPage()}
+            disabled={!canGoBack}
+            onClick={() => {
+              if (serverPagination) {
+                serverPagination.onPageChange(pageNumber - 1);
+                return;
+              }
+
+              table.previousPage();
+            }}
           >
             <ChevronLeft aria-hidden="true" />
           </Button>
@@ -210,8 +271,15 @@ export function DataTable<TData extends RowData>({
             variant="outline"
             size="icon-sm"
             aria-label="Página siguiente"
-            disabled={!table.getCanNextPage()}
-            onClick={() => table.nextPage()}
+            disabled={!canGoForward}
+            onClick={() => {
+              if (serverPagination) {
+                serverPagination.onPageChange(pageNumber + 1);
+                return;
+              }
+
+              table.nextPage();
+            }}
           >
             <ChevronRight aria-hidden="true" />
           </Button>

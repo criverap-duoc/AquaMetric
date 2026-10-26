@@ -1,6 +1,7 @@
 """Persistence for `aquametric.site`: the only module that runs SQL against that table."""
 
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +48,10 @@ class SiteRepository:
             .limit(page_size)
         )
         return list(rows), int(total or 0)
+
+    async def get_by_id(self, site_id: UUID) -> Site | None:
+        """One site by uuid, or `None`; the read endpoints answer 404 instead of an empty page."""
+        return await self._session.get(Site, site_id)
 
     async def upsert_by_id(self, site_in: SiteIn) -> Site:
         """Insert or update one site, without committing (the service owns the unit of work)."""

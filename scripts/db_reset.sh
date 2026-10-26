@@ -16,6 +16,11 @@
 # Uso (desde la raíz del repo, con PostgreSQL arriba: `docker compose up -d postgres`):
 #   ./scripts/db_reset.sh
 #
+# Si la base quedó con datos corruptos o con fechas futuras (una semilla antigua con otra
+# ventana), el reset es el arreglo: `./scripts/db_reset.sh && ./scripts/seed_demo.sh`. Las
+# lecturas futuras no se muestran como «última lectura» (el API filtra `analyzed_at <= now()`),
+# pero siguen ocupando filas y confunden los conteos.
+#
 # Requisitos: `uv` y `psql` (cliente de PostgreSQL 16) en el PATH, `api/.env` con DATABASE_URL.
 
 set -euo pipefail
