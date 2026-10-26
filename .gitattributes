@@ -1,0 +1,30 @@
+# Default: normalize to LF in the repo, keep platform EOL in worktree
+* text=auto
+
+# Shell scripts MUST be LF (CRLF breaks { } function parsing in Git Bash)
+*.sh        text eol=lf
+*.bash      text eol=lf
+
+# Python, JS/TS, JSON, YAML, MD: LF in repo (git handles worktree)
+*.py        text eol=lf
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.js        text eol=lf
+*.jsx       text eol=lf
+*.json      text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+*.toml      text eol=lf
+*.md        text eol=lf
+*.css       text eol=lf
+*.html      text eol=lf
+
+# Binary (no normalization)
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.woff      binary
+*.woff2     binary
+*.pdf       binary

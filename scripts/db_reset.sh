@@ -21,7 +21,8 @@
 # lecturas futuras no se muestran como «última lectura» (el API filtra `analyzed_at <= now()`),
 # pero siguen ocupando filas y confunden los conteos.
 #
-# Requisitos: `uv` y `psql` (cliente de PostgreSQL 16) en el PATH, `api/.env` con DATABASE_URL.
+# Requisitos: `uv`, `api/.env` con DATABASE_URL y un cliente psql: el del host si está en el PATH;
+# si no (Windows/Git Bash), se usa `docker exec` en el contenedor `aquametric-pg`.
 
 set -euo pipefail
 
@@ -51,8 +52,24 @@ fi
 # psql no entiende el prefijo de driver de SQLAlchemy.
 PSQL_URL="${DB_URL/postgresql+asyncpg:/postgresql:}"
 
+# En Windows/Git Bash el cliente `psql` no está en el PATH, pero el contenedor `aquametric-pg`
+# (docker compose) sí lo trae. `psql_exec` recibe solo opciones/comandos de psql: la conexión sale
+# de PSQL_URL en el host y de `-U/-d` dentro del contenedor (el puerto 5433 es solo del host).
+psql_exec() {
+  if command -v psql >/dev/null 2>&1; then
+    echo "→ usando psql del host"
+    psql "$PSQL_URL" "$@"
+  elif command -v docker >/dev/null 2>&1; then
+    echo "→ usando docker exec (container)"
+    docker exec -i aquametric-pg psql -U aquametric -d aquametric "$@"
+  else
+    echo "No hay psql en el PATH ni docker para usar el contenedor aquametric-pg." >&2
+    exit 1
+  fi
+}
+
 echo "Recreando el esquema aquametric en ${PSQL_URL##*@} ..."
-psql "$PSQL_URL" -v ON_ERROR_STOP=1 \
+psql_exec -v ON_ERROR_STOP=1 \
   -c "DROP SCHEMA IF EXISTS aquametric CASCADE; CREATE SCHEMA aquametric;"
 
 echo "Aplicando migraciones ..."
@@ -60,3 +77,4 @@ cd "$ROOT_DIR/api"
 uv run alembic upgrade head
 
 echo "Listo: esquema aquametric vacío y migraciones al día."
+
