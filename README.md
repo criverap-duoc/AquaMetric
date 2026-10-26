@@ -59,8 +59,13 @@ se pueda repetir. Carpeta: [`docs/captures/`](docs/captures/).
 | Series (tendencia + tabla de observaciones) - Control SPC (carta I-MR con reglas R1/R2) | `docs/captures/AquaMetric2.gif` |
 | Screening: Comparación con Límites Normativos - Pipeline con últimas ingestas y lecturas - Ajustes: Parámetros, dimensiones y rangos (sólo lectura) | `docs/captures/AquaMetric3.gif` |
 
+### Resumen - Sitios
 ![Resumen - Sitios](docs/captures/AquaMetric1.gif)
+
+### Series - Control SPC
 ![Series - Control SPC](docs/captures/AquaMetric2.gif)
+
+### Screening - Pipeline - Ajustes
 ![Screening - Pipeline - Ajustes](docs/captures/AquaMetric3.gif)
 
 
