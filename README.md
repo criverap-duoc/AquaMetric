@@ -40,6 +40,14 @@ Nelson y capacidad de proceso. La UI es pública y de solo lectura.
 | **F** | Despliegue (Render + Neon + Vercel), CI, capturas y demo viva | **en curso** (F-1a: `GET /observations` y las pantallas de Series y Control sobre datos reales) |
 | **G** | Pipeline AWS con SAM | pendiente (opcional, se recorta primero) |
 
+## Demo en vivo
+
+- **App**: https://aquametric-rho.vercel.app
+- **API**: https://aquametric-api.onrender.com/api/v1/docs
+- **Repo**: https://github.com/criverap-duoc/AquaMetric
+
+> Datos demo del simulador (4 sitios × 5 parámetros × 30 días = 14.380 lecturas). El screening está en modo referencial porque el químico aún no firmó los límites del catálogo (ADR-012).
+
 ## Capturas
 
 Las capturas se graban con la demo cargada (`./scripts/seed_demo.sh`, semilla fija) para que el GIF
@@ -47,13 +55,13 @@ se pueda repetir. Carpeta: [`docs/captures/`](docs/captures/).
 
 | Pantalla | Archivo |
 |---|---|
-| Resumen (KPIs y alertas) | `docs/captures/01-resumen.gif` |
-| Control SPC (carta I-MR con reglas R1/R2) | `docs/captures/02-control.gif` |
-| Series (tendencia + tabla de observaciones) | `docs/captures/03-series.gif` |
+| Resumen (KPIs y alertas) - Sitios de Monitoreo | `docs/captures/AquaMetric1.gif` |
+| Series (tendencia + tabla de observaciones) - Control SPC (carta I-MR con reglas R1/R2) | `docs/captures/AquaMetric2.gif` |
+| Screening: Comparación con Límites Normativos - Pipeline con últimas ingestas y lecturas - Ajustes: Parámetros, dimensiones y rangos )(sólo lectura) | `docs/captures/AquaMetric3.gif` |
 
-![Resumen](docs/captures/01-resumen.gif)
-![Control SPC](docs/captures/02-control.gif)
-![Series](docs/captures/03-series.gif)
+![Resumen - Sitios](docs/captures/01-resumen.gif)
+![Series - Control SPC](docs/captures/02-control.gif)
+![Screening - Pipeline - Ajustes](docs/captures/03-series.gif)
 
 > ⏳ Pendiente de captura (Fase F): los archivos se agregan en `docs/captures/` al desplegar la demo.
 
@@ -320,11 +328,15 @@ panel (ningún secreto en el repo) e `INGEST_API_KEY` se genera. Antes de dar la
 `GET /api/v1/health` responde 200 y `POST /api/v1/screening/evaluate` devuelve `not_evaluable` con
 motivo (nunca 500, que sería la señal de que el catálogo no entró en la imagen).
 
+El paso a paso completo (Neon, Render, migraciones, Vercel, CORS, datos demo y UptimeRobot) está en
+[`docs/deploy.md`](docs/deploy.md).
+
 ## Documentación
 
 | Documento | Para qué |
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | Vista de conjunto: diagramas Mermaid, camino único de escritura, capas, tablas, pipeline AWS y despliegue |
+| [`docs/deploy.md`](docs/deploy.md) | Despliegue paso a paso: Neon, Render, migraciones, Vercel, CORS, datos demo y UptimeRobot |
 | [`docs/spc-methods.md`](docs/spc-methods.md) | Fórmulas de I-MR y X̄-R, reglas R1–R5, capacidad y política de censurados, en lenguaje claro |
 | [`docs/glossary.md`](docs/glossary.md) | Glosario (dominio químico, SPC, screening, infraestructura) para el químico y el analista |
 | [`docs/design-system.md`](docs/design-system.md) | Tokens, tipografía, componentes y reglas de gráficos de la UI |

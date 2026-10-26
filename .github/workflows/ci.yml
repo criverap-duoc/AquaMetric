@@ -1,0 +1,185 @@
+# Continuous integration (01 §2, 03 §2 N3): the gates a deploy has to pass anyway.
+#
+# Three independent jobs, so a red frontend never hides a red API:
+#   api     — ruff (lint + format), mypy strict, unit suite, migrations on a clean database and
+#             the integration suite (Testcontainers)
+#   web     — typecheck, eslint and the production build
+#   catalog — the read-only copy of catalog/ is complete, self-consistent and hash-shaped
+#
+# Nothing here writes to the repository, to AWS or to Neon: every test uses a throwaway
+# PostgreSQL that dies with the job.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same branch cancels the previous run: CI is a gate, not a history.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API · ruff + mypy + pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      # Same image docker-compose.yml runs locally (PostgreSQL 16, like the demo uses), so the
+      # migration smoke test below exercises `api/alembic/` on the server version that matters.
+      # The integration suite does NOT connect here: tests/integration/conftest.py starts its own
+      # postgres:16-alpine through Testcontainers.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aquametric
+          POSTGRES_PASSWORD: aquametric
+          POSTGRES_DB: aquametric
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aquametric -d aquametric"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # `Settings` refuses to start without INGEST_API_KEY (min_length=16) and validates the rest,
+      # so every command that imports the app needs these values. None of them is a secret.
+      ENV: ci
+      DATABASE_URL: postgresql+asyncpg://aquametric:aquametric@localhost:5432/aquametric
+      INGEST_API_KEY: ci-only-key-0123456789abcdef
+      CORS_ORIGINS: http://localhost:5174
+      CATALOG_DIR: ${{ github.workspace }}/catalog
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv and Python 3.13
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: api/uv.lock
+
+      - name: Sync dependencies from uv.lock
+        run: uv sync --frozen
+
+      - name: Lint (ruff)
+        run: uv run ruff check --output-format=concise .
+
+      - name: Format (ruff format)
+        run: uv run ruff format --check .
+
+      - name: Types (mypy)
+        run: uv run mypy app
+
+      - name: Unit tests
+        run: uv run pytest -q -m "not integration"
+
+      # 03 §2: a migration is only done when it is reversible. Downgrading the initial revision
+      # leaves an empty `aquametric.alembic_version` behind (ADR-013), so the re-upgrade proves it.
+      - name: Migrations are reversible on a clean database
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade -1
+          uv run alembic upgrade head
+
+      - name: Integration tests (Testcontainers)
+        run: uv run pytest -q -m integration
+
+  web:
+    name: Web · typecheck + lint + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The pnpm version comes from `packageManager` in package.json (single source of truth).
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Types
+        run: pnpm --filter web typecheck
+
+      - name: Lint (eslint)
+        run: pnpm --filter web lint
+
+      - name: Build
+        run: pnpm --filter web build
+
+  catalog:
+    name: Catalog · integrity and provenance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # catalog/ is a read-only copy owned by TerraPlan (ADR-005): CI proves it is complete and
+      # internally consistent, and prints the file digests so anyone can compare them with a fresh
+      # `python scripts/sync_catalog.py` run. `catalog.meta.json`'s `sha256` is TerraPlan's
+      # *logical bundle* hash, not the hash of any file (see the note sync_catalog.py prints), so
+      # comparing it against a file digest would fail by construction; the version check is the
+      # invariant that catches a hand-edited or half-synced copy.
+      - name: Verify the catalog copy
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          CATALOG = Path("catalog")
+          META = "catalog.meta.json"
+          VERSIONED = ("parameters.v1.json", "units.v1.json", "limits.v1.json", "regulations.v1.json")
+          SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+
+          missing = [name for name in (META, *VERSIONED) if not (CATALOG / name).is_file()]
+          if missing:
+              sys.exit(f"ERROR: missing catalog files: {', '.join(missing)}")
+
+          meta = json.loads((CATALOG / META).read_text(encoding="utf-8"))
+          declared = meta.get("sha256")
+          version = meta.get("version")
+          errors: list[str] = []
+          if not isinstance(declared, str) or not SHA256_HEX.match(declared):
+              errors.append(f"{META}: 'sha256' is missing or is not a lowercase 64-char hex digest")
+          if not isinstance(version, str) or not version:
+              errors.append(f"{META}: 'version' is missing")
+
+          print(f"catalog v{version} · declared bundle sha256 {declared}")
+          print()
+          for name in VERSIONED:
+              raw = (CATALOG / name).read_bytes()
+              document = json.loads(raw)
+              if document.get("version") != version:
+                  errors.append(f"{name}: version {document.get('version')!r} != {version!r} in {META}")
+              print(f"{hashlib.sha256(raw).hexdigest()}  {name}")
+
+          print()
+          print("Compare the digests above with a fresh sync:")
+          print("  python scripts/sync_catalog.py --from-path <terraplan>/catalog")
+          if errors:
+              print()
+              for error in errors:
+                  print(f"ERROR: {error}", file=sys.stderr)
+              sys.exit(1)
+          print("OK: catalog copy is complete, self-consistent and hash-shaped.")
+          PY
