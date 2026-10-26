@@ -6,6 +6,18 @@ import type { ControlChartResponse, RuleViolation } from "@/types/api";
 /** Minimum Phase I baseline: the number ADR-001 fixes, mirroring `spc/constants.py`. */
 export const MIN_BASELINE_POINTS = 20;
 
+/**
+ * Phase I size every chart opens with, in the Control screen and in the dashboard alike.
+ *
+ * 20 points is the ADR-001 minimum and the number the SPC core enforces, but a sigma estimated
+ * from 19 moving ranges is itself unstable: on the demo series it lands anywhere between 0.6 and
+ * 1.3 true standard deviations, so an innocent chart shows a handful of false excursions. 40
+ * points keeps the limits honest without eating the monitored window. The API defaults to 20, so
+ * the client always sends the number explicitly and both screens count signals on the same
+ * baseline.
+ */
+export const DEFAULT_BASELINE_POINTS = 40;
+
 export interface ControlChartParams {
   siteId: string;
   parameterCode: string;
@@ -24,14 +36,12 @@ export interface ControlChartParams {
 export function chartSearch({
   siteId,
   parameterCode,
-  baselinePoints,
+  baselinePoints = DEFAULT_BASELINE_POINTS,
   monitoringPoints,
 }: ControlChartParams) {
   const search = new URLSearchParams({ siteId, parameterCode });
 
-  if (baselinePoints !== undefined) {
-    search.set("baselinePoints", String(baselinePoints));
-  }
+  search.set("baselinePoints", String(baselinePoints));
 
   if (monitoringPoints !== undefined) {
     search.set("monitoringPoints", String(monitoringPoints));
@@ -48,11 +58,17 @@ export const spcKeys = {
       "chart",
       params.siteId,
       params.parameterCode,
-      params.baselinePoints ?? null,
+      params.baselinePoints ?? DEFAULT_BASELINE_POINTS,
       params.monitoringPoints ?? null,
     ] as const,
   rules: (params: ControlChartParams) =>
-    ["spc", "rules", params.siteId, params.parameterCode, params.baselinePoints ?? null] as const,
+    [
+      "spc",
+      "rules",
+      params.siteId,
+      params.parameterCode,
+      params.baselinePoints ?? DEFAULT_BASELINE_POINTS,
+    ] as const,
 };
 
 /**

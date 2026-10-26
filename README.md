@@ -224,14 +224,48 @@ anomalías inyectadas (`shift`, `spike`, `drift`, `dropout`, `censored`). El gen
 # o una serie concreta
 cd api
 uv run python -m app.simulator.run --site SIM-RIO-MAIPO-01 --parameter PH --seed 42 --days 30 \
-  --events shift,spike --start 2026-09-26T00:00:00Z
+  --events shift,spike --start 2026-09-27T00:00:00Z
 ```
 
+Cada parámetro lleva **su propio juego de anomalías** en lugar de las cinco en todas las series: con
+el mismo juego, las veinte cartas de control se veían idénticas y el Resumen repetía la misma alerta
+veinte veces.
+
+| Parámetro | Anomalías inyectadas | Firma en la carta de control |
+|---|---|---|
+| `PH` | `shift` de 3,5 σ durante 30 puntos + `spike` de 6 σ | Un bloque de ~30 puntos sobre el UCL (R1) con una R2 dentro; el `spike` es un R1 aislado |
+| `DO` | `drift` en rampa hasta 3,5 σ en 26 puntos | Los R1 se amontonan al final de la rampa, con R4/R5 acompañando |
+| `COND` | `spike` de 6 σ | Un R1 exactamente en el `spike` (índice 75), sin bloque alrededor |
+| `TURB` | `dropout` de 5 lecturas + 4 lecturas censuradas (`< LOQ`) | Ningún R1 en el hueco: la señal es el hueco de 5 lecturas y los círculos huecos de los censurados |
+| `N_NO3` | `drift` + `spike` | Bloque de R1 en el tramo final de la rampa y una R3 durante ella |
+
+Las anomalías se plantan entre los índices 50 y 116 de la serie, dentro de la ventana que la carta
+dibuja **y** evalúa (40 puntos de línea base + 100 de monitoreo): un evento fuera de esa ventana
+existe en la base pero nadie lo ve, que es exactamente lo que pasaba antes de este ajuste.
+
+La firma es la **forma** —bloque, rampa, punto aislado, hueco—, no el conteo: los límites salen de
+40 puntos de línea base, así que una serie en control todavía arrastra unos pocos R1 sueltos por
+ventana (medido: 0 a 7 en las veinte series de la demo; la misma variabilidad que motiva usar 40 y
+no 20, más arriba). Los cuatro sitios usan semillas distintas, de modo que el número exacto de
+señales cambia y la forma no.
+
+Dos decisiones del generador explican cómo se ven las cartas:
+
+- **`ar1_phi = 0,25` por defecto.** Con `ar1_phi = 0,7` el rango móvil de la serie es mucho menor
+  que su dispersión real, así que los límites quedaban a ±1,6 σ verdaderas y **una de cada ocho
+  lecturas normales rompía R1** (medido con 200 series simuladas: 13 % de la ventana de monitoreo
+  con 0,7; con 0,25 baja a ~1,7 %): las anomalías plantadas se ahogaban entre falsas alarmas y las
+  cartas volvían a parecerse entre sí.
+- **Fase I de 40 puntos en la carta.** El mínimo de ADR-001 son 20, pero con 20 puntos el ancho de
+  los límites tiene 21,5 % de dispersión relativa (14,4 % con 40) y la tasa de R1 espurios sube de
+  1,7 % a 2,6 % de los puntos monitorizados; el filtro de la pantalla Control permite volver a
+  20, 30 o 50.
+
 El script exige la API arriba (`/api/v1/health`) y el catálogo sincronizado, y después envía **20
-lotes** (4 sitios × 5 parámetros, 706 lecturas cada uno) con una semilla propia por combinación
-(`SEED_BASE + índice`, por defecto 42…61), las cinco anomalías en cada serie y una ventana fija:
+lotes** (4 sitios × 5 parámetros, 14 380 lecturas) con una semilla propia por combinación
+(`SEED_BASE + índice`, por defecto 42…61), el juego de anomalías de su parámetro y una ventana fija:
 el inicio es la medianoche UTC de hace 29 días (`DEMO_START` la congela). Al terminar verifica
-`/api/v1/sites` e imprime `OK: 4 sitios, 5 parámetros, 14120 observaciones`.
+`/api/v1/sites` e imprime `OK: 4 sitios, 5 parámetros, 14380 observaciones`.
 
 Es **idempotente**: re-ejecutarlo el mismo día repite la misma `Idempotency-Key`, así que la API
 devuelve la respuesta guardada y no escribe filas nuevas (verificado contando

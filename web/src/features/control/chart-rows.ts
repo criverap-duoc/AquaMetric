@@ -6,6 +6,41 @@ export const SIGNAL_BEYOND_LIMIT = "R1";
 /** Early-warning band: the point sits between 2σ and 3σ of the center line (R4/R5 territory). */
 export const SIGNAL_WARNING = "2σ";
 
+/**
+ * Labels a point can carry, most severe first.
+ *
+ * `R1` (a point beyond a control limit) outranks a sequence rule, and any rule outranks the
+ * early-warning band. The order is what decides which single label a crowded point keeps.
+ */
+const SIGNAL_SEVERITY = [SIGNAL_BEYOND_LIMIT, "R2", "R3", "R4", "R5", SIGNAL_WARNING] as const;
+
+/** Position of a label in `SIGNAL_SEVERITY`; an unknown label sorts last. */
+function severityRank(signal: string): number {
+  const rank = SIGNAL_SEVERITY.indexOf(signal as (typeof SIGNAL_SEVERITY)[number]);
+
+  return rank === -1 ? SIGNAL_SEVERITY.length : rank;
+}
+
+/**
+ * The one label a dot shows.
+ *
+ * A point can be beyond a control limit *and* inside the 2σ band, so the candidates arrive as a
+ * list. Keeping only the most severe — `R1` before `R2`…`R5`, and `2σ` last — is also what keeps
+ * the chart legible when a dozen violations land on nearby points: the complete list of signals
+ * lives in the panel below, never on top of the dots (04 §2.2).
+ */
+export function mostSevereSignal(signals: readonly string[]): string | null {
+  let mostSevere: string | null = null;
+
+  for (const signal of signals) {
+    if (mostSevere === null || severityRank(signal) < severityRank(mostSevere)) {
+      mostSevere = signal;
+    }
+  }
+
+  return mostSevere;
+}
+
 /** One row of the two panels: the individual value and the moving range that follows it. */
 export interface ChartRow {
   /** Position in the plotted series, from 0: the x axis is the sequence, not the calendar. */
@@ -67,15 +102,17 @@ function signalOf(
     return null;
   }
 
+  const signals: string[] = [];
+
   if (value > individuals.ucl || value < individuals.lcl) {
-    return SIGNAL_BEYOND_LIMIT;
+    signals.push(SIGNAL_BEYOND_LIMIT);
   }
 
   if (warningLimit > 0 && Math.abs(value - individuals.center) > warningLimit) {
-    return SIGNAL_WARNING;
+    signals.push(SIGNAL_WARNING);
   }
 
-  return null;
+  return mostSevereSignal(signals);
 }
 
 export function describeSignal(signal: string): string {

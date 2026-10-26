@@ -238,12 +238,24 @@ def _load_catalog(value: str | None) -> Catalog:
 
 
 def _build_events(types: Sequence[EventType], *, config: ScenarioConfig) -> tuple[Event, ...]:
-    """Place the requested anomalies so each SPC signature is visible in the demo series.
+    """Place the requested anomalies where the demo can actually show them.
 
     Positions are fractions of the series and magnitudes multiples of `base_std`, so the same
-    layout works for pH (±0,3 UPH) and for conductivity (±100 µS/cm). A censored block reports
-    one standard deviation as its LOQ: small enough to be a detection limit, large enough to be
-    seen in the UI.
+    layout works for pH (±0,3 UPH) and for conductivity (±100 µS/cm).
+
+    Every anchor stays inside the window the control chart draws *and* scans: `GET
+    /spc/control-charts` covers a Phase I baseline (40 points by default) plus 100 monitored
+    points, i.e. the first ~140 readings, so an anomaly planted at 40 % of a 30-day hourly series
+    (index ~288) would never reach the chart. The anchors also stay after index 50, so a longer
+    Phase I (the chart accepts 20, 30, 40 or 50 baseline points) still never sees an anomaly. Each
+    anomaly gets its own slot, which keeps a parameter's `shift`+`spike` readable as two separate
+    events.
+
+    Magnitudes are sized for a Phase I of 40 points, whose sigma is still an estimate: a 2,5-sigma
+    shift leaves about half its points under the limit and reads as scattered noise, whereas
+    3,5 sigma produces the contiguous run a shift is supposed to look like. The censored block
+    reports half a standard deviation as its LOQ — a plausible detection limit, and low enough
+    that `LOQ/2` stays inside the control limits instead of faking an out-of-limit reading.
     """
     points = config.points
     events: list[Event] = []
@@ -251,45 +263,45 @@ def _build_events(types: Sequence[EventType], *, config: ScenarioConfig) -> tupl
         if event_type is EventType.shift:
             events.append(
                 Event(
-                    at_index=int(points * 0.40),
+                    at_index=int(points * 0.120),
                     type=event_type,
-                    magnitude=2.5 * config.base_std,
-                    duration=max(1, int(points * 0.15)),
+                    magnitude=3.5 * config.base_std,
+                    duration=max(1, int(points * 0.042)),
                 )
             )
         elif event_type is EventType.spike:
             events.append(
                 Event(
-                    at_index=int(points * 0.60),
+                    at_index=int(points * 0.105),
                     type=event_type,
-                    magnitude=5.0 * config.base_std,
+                    magnitude=6.0 * config.base_std,
                 )
             )
         elif event_type is EventType.drift:
             events.append(
                 Event(
-                    at_index=int(points * 0.10),
+                    at_index=int(points * 0.080),
                     type=event_type,
-                    magnitude=3.0 * config.base_std,
-                    duration=max(1, int(points * 0.20)),
+                    magnitude=3.5 * config.base_std,
+                    duration=max(1, int(points * 0.036)),
                 )
             )
         elif event_type is EventType.dropout:
             events.append(
                 Event(
-                    at_index=int(points * 0.80),
+                    at_index=int(points * 0.155),
                     type=event_type,
                     magnitude=0.0,
-                    duration=max(1, int(points * 0.02)),
+                    duration=max(1, int(points * 0.008)),
                 )
             )
         else:  # EventType.censored
             events.append(
                 Event(
-                    at_index=int(points * 0.05),
+                    at_index=int(points * 0.070),
                     type=event_type,
-                    magnitude=config.base_std,
-                    duration=max(1, int(points * 0.03)),
+                    magnitude=0.5 * config.base_std,
+                    duration=max(1, int(points * 0.006)),
                 )
             )
     return tuple(events)

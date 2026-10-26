@@ -54,6 +54,14 @@ class ScenarioConfig:
     simulator: `base_std` is the spread of a healthy series and `ar1_phi` its autocorrelation
     (sensor readings are never independent, which is exactly what I-MR charts assume away).
 
+    `ar1_phi` defaults to 0.25 on purpose. The demo feeds these series to an I-MR chart whose
+    sigma comes from the average moving range, and the moving range of a strongly autocorrelated
+    process is much smaller than its long-run spread: at phi = 0.7 the estimated limits land at
+    ±1.6 true standard deviations, so one in eight innocent points breaks rule R1 (13 % of the
+    monitored window) and the planted anomalies drown in false alarms. At 0.25 the same series
+    keeps a believable persistence and R1 falls to ~1.7 % of the points, so a lone diamond means
+    something.
+
     Raises:
         ValueError: a parameter is out of range or an event falls outside the series.
     """
@@ -64,7 +72,7 @@ class ScenarioConfig:
     seed: int
     base_mean: float
     base_std: float
-    ar1_phi: float = 0.7
+    ar1_phi: float = 0.25
     events: tuple[Event, ...] = ()
     source: ObservationSource = "sensor"
     interval_minutes: int = 60

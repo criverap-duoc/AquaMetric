@@ -5,7 +5,7 @@ import { useSearchParams } from "react-router-dom";
 import { useCatalogMeta, useParameters } from "@/api/catalog";
 import { useObservations } from "@/api/observations";
 import { useSites } from "@/api/sites";
-import { MIN_BASELINE_POINTS, useControlChart } from "@/api/spc";
+import { DEFAULT_BASELINE_POINTS, MIN_BASELINE_POINTS, useControlChart } from "@/api/spc";
 import { ControlChart } from "@/components/domain/ControlChart";
 import { ErrorState } from "@/components/domain/ErrorState";
 import { MethodPanel } from "@/components/domain/MethodPanel";
@@ -26,7 +26,6 @@ import { ApiError } from "@/lib/api-client";
 /** Baseline sizes the analyst can choose: 20 is the Phase I minimum of ADR-001. */
 const BASELINE_POINT_OPTIONS = [20, 30, 40, 50] as const;
 
-const DEFAULT_BASELINE_POINTS = MIN_BASELINE_POINTS;
 const DEFAULT_PARAMETER_CODE = "PH";
 
 /**
@@ -215,8 +214,6 @@ export function ControlPage() {
 
     setSearchParams(next, { replace: true });
   };
-
-
 
   const chartQuery = useControlChart({
     siteId: site?.id ?? "",

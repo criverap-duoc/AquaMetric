@@ -2,11 +2,11 @@
 # seed_demo.sh — carga la demo del portafolio con el simulador determinista (C-1, 03 §7).
 #
 # Qué hace:
-#   * 4 sitios × 5 parámetros × 30 días ≈ 14 400 lecturas horarias (720 por serie), con los
-#     cinco tipos de anomalía que el núcleo SPC sabe detectar: `shift`, `spike`, `drift`,
-#     `dropout`, `censored`.
-#   * Una semilla distinta por combinación sitio+parámetro (`SEED_BASE + índice`), así que cada
-#     serie es distinta y las cartas de control no se ven todas iguales.
+#   * 4 sitios × 5 parámetros × 30 días ≈ 14 400 lecturas horarias (720 por serie).
+#   * Un juego de anomalías **distinto por parámetro** (`events_for`): `shift`+`spike` en PH,
+#     `drift` en DO, `spike` en COND, `dropout`+`censored` en TURB y `drift`+`spike` en N_NO3.
+#   * Una semilla distinta por combinación sitio+parámetro (`SEED_BASE + índice`), así que las
+#     veinte series son distintas y las cartas de control no se ven todas iguales.
 #   * Escribe por `POST /api/v1/ingest/observations` (X-API-Key + Idempotency-Key), es decir, por
 #     el mismo camino que TerraPlan: nada de SQL directo (ADR-009).
 #
@@ -28,7 +28,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 API_URL="${API_URL:-http://localhost:8000}"
 SEED_BASE="${SEED_BASE:-42}"
 DAYS="${DAYS:-30}"
-EVENTS="${EVENTS:-shift,spike,drift,dropout,censored}"
+# Vacío = un juego de anomalías distinto por parámetro (`events_for`, más abajo). Definir EVENTS
+# fuerza el mismo juego en las veinte series y solo sirve para probar una anomalía concreta.
+EVENTS="${EVENTS:-}"
 # Ventana alineada a la medianoche UTC: la serie termina hoy (el dashboard se ve fresco) y dos
 # corridas del mismo día son idénticas, que es lo que hace la semilla útil.
 START="${DEMO_START:-$(date -u -d '-29 days' +%Y-%m-%dT00:00:00Z)}"
@@ -40,6 +42,25 @@ CATALOG_FILES=(catalog.meta.json limits.v1.json parameters.v1.json regulations.v
 fail() {
   printf 'Error: %s\n' "$*" >&2
   exit 1
+}
+
+# Un juego de anomalías distinto por parámetro (03 §7). Con las mismas cinco en las veinte series,
+# el Resumen mostraba veinte veces la misma alerta («Punto 79») y las cinco cartas de un sitio se
+# veían idénticas; cada juego deja una firma SPC distinta (ver «Datos demo» en el README).
+events_for() {
+  if [[ -n "$EVENTS" ]]; then
+    printf '%s' "$EVENTS"
+    return
+  fi
+
+  case "$1" in
+    PH) printf 'shift,spike' ;;
+    DO) printf 'drift' ;;
+    COND) printf 'spike' ;;
+    TURB) printf 'dropout,censored' ;;
+    N_NO3) printf 'drift,spike' ;;
+    *) printf 'shift,spike,drift,dropout,censored' ;;
+  esac
 }
 
 # ---------------------------------------------------------------- precondiciones ---
@@ -68,8 +89,9 @@ fi
 
 # ------------------------------------------------------------------------ lotes ---
 TOTAL_BATCHES=$(( ${#SITES[@]} * ${#PARAMETERS[@]} ))
-printf 'Demo: %d sitios × %d parámetros = %d lotes · %sd desde %s · eventos %s\n' \
-  "${#SITES[@]}" "${#PARAMETERS[@]}" "$TOTAL_BATCHES" "$DAYS" "$START" "$EVENTS"
+printf 'Demo: %d sitios × %d parámetros = %d lotes · %sd desde %s · anomalías %s\n' \
+  "${#SITES[@]}" "${#PARAMETERS[@]}" "$TOTAL_BATCHES" "$DAYS" "$START" \
+  "${EVENTS:-distintas por parámetro (ver README)}"
 
 batch=0
 accepted_total=0
@@ -79,14 +101,16 @@ for site in "${SITES[@]}"; do
   for parameter in "${PARAMETERS[@]}"; do
     seed=$(( SEED_BASE + batch ))
     batch=$(( batch + 1 ))
-    printf '→ [%02d/%02d] %s · %s · seed %d\n' "$batch" "$TOTAL_BATCHES" "$site" "$parameter" "$seed"
+    events="$(events_for "$parameter")"
+    printf '→ [%02d/%02d] %s · %s · seed %d · %s\n' \
+      "$batch" "$TOTAL_BATCHES" "$site" "$parameter" "$seed" "$events"
 
     line="$(uv run python -m app.simulator.run \
       --site "$site" \
       --parameter "$parameter" \
       --days "$DAYS" \
       --seed "$seed" \
-      --events "$EVENTS" \
+      --events "$events" \
       --start "$START" \
       --api-url "$API_URL")"
     printf '  %s\n' "$line"

@@ -4,8 +4,8 @@ The determinism assertions are deliberate: the demo data behind the README scree
 reproducible from `--seed`, so a change in the RNG call order has to break a test here and not
 the screenshots.
 
-The event tests pin `ar1_phi = 0`: with the default 0.7 the 20-point windows they compare
-overlap heavily and the assertions would become statistical instead of deterministic.
+The event tests pin `ar1_phi = 0`: with the default 0.25 the 20-point windows they compare
+overlap slightly and the assertions would become statistical instead of deterministic.
 """
 
 from dataclasses import replace

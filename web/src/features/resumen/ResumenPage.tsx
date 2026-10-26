@@ -6,6 +6,7 @@ import { useCatalogMeta, useParameters } from "@/api/catalog";
 import { rankSignals, summarizeSeries, useSeriesCharts, type SeriesKey } from "@/api/observations";
 import { usePipelineStatus } from "@/api/pipeline";
 import { useSites } from "@/api/sites";
+import { DEFAULT_BASELINE_POINTS } from "@/api/spc";
 import { ErrorState } from "@/components/domain/ErrorState";
 import { ProcessStatusBadge } from "@/components/domain/ProcessStatusBadge";
 import { StatTile } from "@/components/domain/StatTile";
@@ -207,7 +208,7 @@ export function ResumenPage() {
               label="Series con señales"
               value={formatNumber(summary.seriesWithSignals, 0)}
               unit={`de ${formatNumber(summary.totalSeries, 0)}`}
-              hint="Reglas R1–R5 sobre la ventana de monitoreo (línea base de 20 puntos)"
+              hint={`Reglas R1–R5 sobre la ventana de monitoreo (línea base de ${DEFAULT_BASELINE_POINTS} puntos)`}
               icon={Activity}
               status={summary.seriesWithSignals > 0 ? "warning" : "normal"}
             />

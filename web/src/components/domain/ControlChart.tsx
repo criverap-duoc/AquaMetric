@@ -68,6 +68,22 @@ const Y_AXIS_LABEL_STYLE = { fontSize: 11, textAnchor: "middle" } as const;
 const DIAMOND_RADIUS = 6;
 const WARNING_RADIUS = 5;
 const DOT_RADIUS = 3;
+/**
+ * Placement of the point labels, one slot per `index % 4`.
+ *
+ * On a 120-point series two neighbouring dots sit about six pixels apart, so labels printed at a
+ * fixed offset overlap and the chart turns into a smudge. The four slots stagger the label
+ * vertically (and always to the right of its dot, so it never leaves the plot at either edge):
+ * neighbours differ by at least ~22 px and points two apart by ~12 px, more than a `text-[10px]`
+ * label needs, while every label stays beside its own dot. The complete list of signals remains
+ * in the panel below (04 §2.2).
+ */
+const LABEL_ANCHORS = [
+  { dx: 8, dy: -8 },
+  { dx: 8, dy: 14 },
+  { dx: 8, dy: -22 },
+  { dx: 8, dy: 26 },
+] as const;
 const SUMMARY_ID = "control-chart-summary";
 const TABLE_ID = "control-chart-table";
 
@@ -80,6 +96,9 @@ function IndividualDot(props: DotItemDotProps) {
     return <g />;
   }
 
+  // Four slots instead of one: neighbours would otherwise print their labels on top of each other.
+  const labelAnchor = LABEL_ANCHORS[row.index % LABEL_ANCHORS.length];
+
   if (row.signal === SIGNAL_BEYOND_LIMIT) {
     return (
       <g>
@@ -88,8 +107,8 @@ function IndividualDot(props: DotItemDotProps) {
           fill="var(--spc-violation)"
         />
         <text
-          x={cx + DIAMOND_RADIUS + 2}
-          y={cy - DIAMOND_RADIUS}
+          x={cx + labelAnchor.dx}
+          y={cy + labelAnchor.dy}
           className="fill-foreground font-mono text-[10px]"
         >
           {SIGNAL_BEYOND_LIMIT}
@@ -106,8 +125,8 @@ function IndividualDot(props: DotItemDotProps) {
           fill="var(--spc-warning)"
         />
         <text
-          x={cx + WARNING_RADIUS + 3}
-          y={cy - WARNING_RADIUS}
+          x={cx + labelAnchor.dx}
+          y={cy + labelAnchor.dy}
           className="fill-muted-foreground font-mono text-[10px]"
         >
           {SIGNAL_WARNING}
